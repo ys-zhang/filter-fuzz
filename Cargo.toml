@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 libafl = "0.6.1"
+crossbeam = "0.8.1"   # channel
+tensorflow = "0.17.0"
