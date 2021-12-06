@@ -1,4 +1,4 @@
-use crossbeam::channel::{select, bounded, unbounded, Receiver, SendError, Sender};
+use crossbeam::channel::{select, Receiver, SendError, Sender};
 use libafl::bolts::rands::{Rand, StdRand};
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -32,37 +32,6 @@ pub trait FilterController<I, R> {
     }
 }
 
-/// Keeps channels for sending samples and massage passing
-#[allow(unused)] // TODO: check this later
-pub struct ChanStore<X, Y> {
-    // send/recv inputs
-    x_tx: Option<Sender<X>>,
-    x_rx: Option<Receiver<X>>,
-    // send/recv input-response pair
-    xy_tx: Option<Sender<(X, Y)>>,
-    xy_rx: Option<Receiver<(X, Y)>>,
-    // control msg send to filter
-    flt_req_tx: Option<Sender<FilterRequest>>,
-    flt_req_rx: Option<Receiver<FilterRequest>>,
-}
-
-#[allow(unused)] // TODO: check this later
-impl<X, Y> ChanStore<X, Y> {
-    pub fn new() -> Self {
-        let (x_tx, x_rx) = unbounded();
-        let (xy_tx, xy_rx) = unbounded();
-        let (flt_req_tx, flt_req_rx) = bounded(1);
-        Self {
-            x_tx: Some(x_tx),
-            x_rx: Some(x_rx),
-            xy_tx: Some(xy_tx),
-            xy_rx: Some(xy_rx),
-            flt_req_tx: Some(flt_req_tx),
-            flt_req_rx: Some(flt_req_rx),
-        }
-    }
-}
-
 pub trait Filter<X, Y> {
     fn filter_one(&mut self, x: X) -> Option<X>;
     fn filter(&mut self, xs: Vec<X>) -> Vec<X> {
@@ -80,6 +49,7 @@ pub trait Filter<X, Y> {
     // fn get_curr_model(&self) -> &Session;
     fn load_model(&mut self, path: PathBuf);
 
+    #[allow(unused)]
     /// run filter loop
     fn run(
         &mut self,
@@ -90,9 +60,9 @@ pub trait Filter<X, Y> {
     ) {
         loop {
             select! {
-              recv(req_ch) -> req => todo!("zys"),
-              recv(smpl_ch) -> xy => todo!("zys"),
-              recv(flt_in) -> x => todo!("zys"),
+              recv(req_ch) -> _req => todo!("zys"),
+              recv(smpl_ch) -> _xy => todo!("zys"),
+              recv(flt_in) -> _x => todo!("zys"),
             }
         }
     }
