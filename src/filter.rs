@@ -7,14 +7,12 @@ use std::path::PathBuf;
 // Message send from controller to modules runs in their own threads
 // such as Generator, Filter and Fuzzer
 #[derive(Debug)]
-#[allow(unused)] // TODO: check this later
 pub enum FilterRequest {
     LoadTFModel(PathBuf),
     StartTraining,
 }
 
 #[derive(Debug)]
-#[allow(unused)] // TODO: check this later
 pub enum FilterState {
     Training,
     Ready,
@@ -25,8 +23,6 @@ pub enum FilterState {
 pub trait FilterController<I, R> {
     fn get_flt_req_tx(&self) -> &Sender<FilterRequest>;
     fn get_state(&self) -> FilterState;
-
-    #[allow(unused)] // TODO: check this later
     fn load_tf_model(&self, path: PathBuf) -> Result<(), SendError<FilterRequest>> {
         self.get_flt_req_tx().send(FilterRequest::LoadTFModel(path))
     }
@@ -49,7 +45,6 @@ pub trait Filter<X, Y> {
     // fn get_curr_model(&self) -> &Session;
     fn load_model(&mut self, path: PathBuf);
 
-    #[allow(unused)]
     /// run filter loop
     fn run(
         &mut self,
@@ -77,7 +72,6 @@ pub struct TravialFilter<X, Y> {
     phantom: PhantomData<(X, Y)>,
 }
 
-#[allow(unused)] // TODO: check this later
 impl<X, Y> TravialFilter<X, Y> {
     pub fn new(pass_rate: f64) -> Self {
         Self {

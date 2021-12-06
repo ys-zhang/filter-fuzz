@@ -1,80 +1,39 @@
 use libafl::{
-    corpus::CorpusScheduler,
-    events::EventManager,
-    feedbacks::Feedback,
-    fuzzer::StdFuzzer,
-    inputs::Input,
-    stages::StagesTuple,
-    state::{HasClientPerfStats, HasExecutions},
     Error,
 };
 
 /// Generator runs in its own thread generate inputs for filter
-pub trait Generator<I, R, E, EM, S, ST> {
-    /// generate one sample of input.
-    fn gen_one_x(&mut self, stages: &mut ST, state: &mut S, manager: &mut EM) -> Result<(I, R), Error>;
+pub trait InputGenerator<I, E, EM, S, ST> {
+    fn gen_one(&mut self, stages: &mut ST, state: &mut S, manager: &mut EM) -> Result<I, Error>;
+    fn gen_n(&mut self, n: usize, stages: &mut ST, state: &mut S, manager: &mut EM) -> Vec<I> {
+        (1..n)
+            .filter_map(|_| self.gen_one(stages, state, manager).ok())
+            .collect()
+    }
+}
 
+pub trait SampleGenerator<I, R, E, EM, S, ST> {
     /// generate one sample of input-response pair
     fn gen_one(
         &mut self,
-        stages: &mut ST,
+        input: I,
         executor: &mut E,
         state: &mut S,
         manager: &mut EM,
     ) -> Result<(I, R), Error>;
 
-    /// generate `n` sample of input.
-    #[allow(unused)] // TODO: check this later
-    fn gen_n_x(
-        &mut self,
-        n: usize,
-        stages: &mut ST,
-        state: &mut S,
-        manager: &mut EM,
-    ) -> Result<(Vec<I>, Vec<R>), Error> {
-        todo!("(zys) need default impl")
-    }
-
     /// generate `n` sample of input-response pair
-    #[allow(unused)] // TODO: check this later
     fn gen_n(
         &mut self,
-        n: usize,
-        stages: &mut ST,
+        inputs: Vec<I>,
         executor: &mut E,
         state: &mut S,
         manager: &mut EM,
-    ) -> Result<(Vec<I>, Vec<R>), Error> {
-        todo!("(zys) need default impl")
-    }
-}
-
-impl<I, R, E, EM, ST, C, CS, F, OF, OT, S, SC> Generator<I, R, E, EM, S, ST>
-    for StdFuzzer<C, CS, F, I, OF, OT, S, SC>
-where
-    CS: CorpusScheduler<I, S>,
-    EM: EventManager<E, I, S, Self>,
-    F: Feedback<I, S>,
-    I: Input,
-    S: HasExecutions + HasClientPerfStats,
-    OF: Feedback<I, S>,
-    ST: StagesTuple<E, EM, S, Self>,
-{
-    #[inline]
-    #[allow(unused)] // TODO: check this later
-    fn gen_one(
-        &mut self,
-        stages: &mut ST,
-        executor: &mut E,
-        state: &mut S,
-        manager: &mut EM,
-    ) -> Result<(I, R), Error> {
-        todo!("zys")
-    }
-
-    #[inline]
-    #[allow(unused)] // TODO: check this later
-    fn gen_one_x(&mut self, stages: &mut ST, state: &mut S, manager: &mut EM) -> Result<(I, R), Error> {
-        todo!("zys")
+    ) -> (Vec<I>, Vec<R>) {
+        let (is, rs): (Vec<_>, Vec<_>) = inputs
+            .into_iter()
+            .filter_map(|i| self.gen_one(i, executor, state, manager).ok())
+            .unzip();
+        (is, rs)
     }
 }
