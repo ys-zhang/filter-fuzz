@@ -6,37 +6,39 @@ use std::path::PathBuf;
 
 // Message send from controller to modules runs in their own threads
 // such as Generator, Filter and Fuzzer
+/// Filter Control Message
 #[derive(Debug)]
-pub enum FilterRequest {
-    StartTraining,
-    LoadTFModel(PathBuf),
-    ModelInfo(Sender<String>),
-    Status(Sender<FilterState>),
+pub enum FltCtrlMsg {
+    StTrn,                     // start training
+    LdTFMdl(PathBuf),          // load tensorflow model
+    GtMdlInfo(Sender<String>), // get model info
+    GtFltSt(Sender<FltSt>),    // get filter state
 }
 
+/// Filter State
 #[derive(Debug)]
-pub enum FilterState {
-    Training,
-    Ready,
+pub enum FltSt {
+    Trn,   // traning
+    Flt,   // filtering
 }
 
 // FilterController controls the filter model (which runs in the filter thread)
 //    in the main thread.
 pub trait FilterController<I, R> {
-    fn get_flt_req_tx(&self) -> &Sender<FilterRequest>;
-    fn get_state(&self) -> FilterState {
+    fn send_request<T>(&mut self, req: FltCtrlMsg) -> Result<T, SendError<FltCtrlMsg>>;
+    fn get_state(&self) -> Result<FltSt, SendError<FltCtrlMsg>> {
         todo!("Yun")
     }
-    fn load_tf_model(&self, path: PathBuf) -> Result<(), SendError<FilterRequest>> {
-        self.get_flt_req_tx().send(FilterRequest::LoadTFModel(path))
+    fn load_tf_model(&mut self, path: PathBuf) -> Result<(), SendError<FltCtrlMsg>> {
+        self.send_request::<()>(FltCtrlMsg::LdTFMdl(path))
     }
 }
 
 pub trait Filter<X, Y> {
-    fn filter_one(&mut self, x: X) -> Option<X>;
-    fn filter(&mut self, xs: Vec<X>) -> Vec<X> {
+    fn flt_one(&mut self, x: X) -> Option<X>;
+    fn flt(&mut self, xs: Vec<X>) -> Vec<X> {
         // `into_iter` returns value but `iter` returns ref
-        xs.into_iter().filter_map(|x| self.filter_one(x)).collect()
+        xs.into_iter().filter_map(|x| self.flt_one(x)).collect()
     }
     fn obv_one(&mut self, x: &X, y: &Y);
     fn obv(&mut self, xs: &[X], ys: &[Y]) {
@@ -52,7 +54,7 @@ pub trait Filter<X, Y> {
     /// run filter loop
     fn run(
         &mut self,
-        req_ch: Receiver<FilterRequest>,
+        req_ch: Receiver<FltCtrlMsg>,
         smpl_ch: Receiver<(X, Y)>,
         flt_in: Receiver<X>,
         flt_out: Sender<X>,
@@ -89,7 +91,7 @@ impl<X, Y> TravialFilter<X, Y> {
 
 impl<X, Y> Filter<X, Y> for TravialFilter<X, Y> {
     #[inline]
-    fn filter_one(&mut self, x: X) -> Option<X> {
+    fn flt_one(&mut self, x: X) -> Option<X> {
         if self.seed.next() <= self.pass_threadshold {
             Some(x)
         } else {

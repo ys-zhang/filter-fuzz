@@ -1,5 +1,5 @@
 use crossbeam::channel::{ bounded, unbounded, Receiver, Sender};
-use crate::filter::FilterRequest;
+use crate::filter::FltCtrlMsg;
 
 /// Keeps channels for sending samples and massage passing
 #[allow(unused)] // TODO: check this later
@@ -14,8 +14,8 @@ pub struct ChanStore<X, Y> {
     pub smpl_tx: Option<Sender<(X, Y)>>,
     pub smpl_rx: Option<Receiver<(X, Y)>>,
     // control msg send to filter
-    pub flt_req_tx: Option<Sender<FilterRequest>>,
-    pub flt_req_rx: Option<Receiver<FilterRequest>>,
+    pub flt_req_tx: Option<Sender<FltCtrlMsg>>,
+    pub flt_req_rx: Option<Receiver<FltCtrlMsg>>,
 }
 
 #[allow(unused)] // TODO: check this later

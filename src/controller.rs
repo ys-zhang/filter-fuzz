@@ -1,5 +1,5 @@
 use crate::{
-    filter::{Filter, FilterController, FilterRequest, FilterState},
+    filter::{Filter, FilterController, FltCtrlMsg, FltSt},
     utils::ChanStore,
 };
 use std::marker::PhantomData;
@@ -52,7 +52,7 @@ where
 
 
 impl<I, R, F, E> FilterController<I, R> for Controller<I, R, F, E> {
-    fn get_flt_req_tx(&self) -> &Sender<FilterRequest> {
+    fn send_request<T>(&mut self, _req: FltCtrlMsg) -> Result<T, SendError<FltCtrlMsg>> {
         todo!("Yun")
     }
 }
