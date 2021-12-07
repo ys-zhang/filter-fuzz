@@ -8,8 +8,10 @@ use std::path::PathBuf;
 // such as Generator, Filter and Fuzzer
 #[derive(Debug)]
 pub enum FilterRequest {
-    LoadTFModel(PathBuf),
     StartTraining,
+    LoadTFModel(PathBuf),
+    ModelInfo(Sender<String>),
+    Status(Sender<FilterState>),
 }
 
 #[derive(Debug)]
@@ -22,7 +24,9 @@ pub enum FilterState {
 //    in the main thread.
 pub trait FilterController<I, R> {
     fn get_flt_req_tx(&self) -> &Sender<FilterRequest>;
-    fn get_state(&self) -> FilterState;
+    fn get_state(&self) -> FilterState {
+        todo!("Yun")
+    }
     fn load_tf_model(&self, path: PathBuf) -> Result<(), SendError<FilterRequest>> {
         self.get_flt_req_tx().send(FilterRequest::LoadTFModel(path))
     }
@@ -55,9 +59,9 @@ pub trait Filter<X, Y> {
     ) {
         loop {
             select! {
-              recv(req_ch) -> _req => todo!("zys"),
-              recv(smpl_ch) -> _xy => todo!("zys"),
-              recv(flt_in) -> _x => todo!("zys"),
+              recv(req_ch) -> _req => todo!("Yun"),
+              recv(smpl_ch) -> _xy => todo!("Yun"),
+              recv(flt_in) -> _x => todo!("Yun"),
             }
         }
     }

@@ -21,7 +21,7 @@ pub struct ChanStore<X, Y> {
 #[allow(unused)] // TODO: check this later
 impl<X, Y> ChanStore<X, Y> {
     pub fn new() -> Self {
-        // TODO: (zys) change to bounded channel?
+        // TODO: (Yun) change to bounded channel?
         let (flt_in_tx, flt_in_rx) = unbounded();
         let (flt_out_tx, flt_out_rx) = unbounded();
         let (smpl_tx, smpl_rx) = unbounded();
