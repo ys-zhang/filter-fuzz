@@ -37,3 +37,8 @@ pub trait SampleGenerator<I, R, E, EM, S, ST> {
         (is, rs)
     }
 }
+
+/// Input generator stage
+pub trait IGStage {
+    
+}
