@@ -1,4 +1,5 @@
 mod stages;
+mod filter;
 
 use libafl::{
   bolts::current_time,
