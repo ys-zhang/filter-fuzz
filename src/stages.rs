@@ -143,6 +143,7 @@ where
             {
                 if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
                     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
+                    
                     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
                 }
             }

@@ -8,7 +8,6 @@ use libafl::{
   feedbacks::Feedback,
   fuzzer::{HasCorpusScheduler, StdFuzzer},
   inputs::Input,
-  // stages::StagesTuple,
   state::{HasClientPerfMonitor, HasExecutions},
   Error,
 };
