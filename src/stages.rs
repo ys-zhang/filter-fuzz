@@ -2,17 +2,21 @@ use crate::filter::Filter;
 use libafl::{
     bolts::rands::Rand,
     corpus::Corpus,
+    executors::HasObservers,
     fuzzer::Evaluator,
     inputs::Input,
     mutators::Mutator,
+    observers::ObserversTuple,
     stages::{MutationalStage, StdMutationalStage},
     state::{HasClientPerfMonitor, HasCorpus, HasRand},
-    executors::HasObservers,
-    observers::ObserversTuple,
     Error,
 };
 
-pub trait FilterStage<E, F, EM, S, Z> {
+pub trait FilterStage<E, F, EM, I, OT, S, Z>
+where
+    E: HasObservers<I, OT, S>,
+    OT: ObserversTuple<I, S>,
+{
     fn perform(
         &mut self,
         fuzzer: &mut Z,
@@ -24,7 +28,11 @@ pub trait FilterStage<E, F, EM, S, Z> {
     ) -> Result<(), Error>;
 }
 
-pub trait FilterStagesTuple<E, F, EM, S, Z> {
+pub trait FilterStagesTuple<E, F, EM, I, OT, S, Z>
+where
+    E: HasObservers<I, OT, S>,
+    OT: ObserversTuple<I, S>,
+{
     fn perform_all(
         &mut self,
         fuzzer: &mut Z,
@@ -36,7 +44,11 @@ pub trait FilterStagesTuple<E, F, EM, S, Z> {
     ) -> Result<(), Error>;
 }
 
-impl<E, F, EM, S, Z> FilterStagesTuple<E, F, EM, S, Z> for () {
+impl<E, F, EM, I, OT, S, Z> FilterStagesTuple<E, F, EM, I, OT, S, Z> for ()
+where
+    E: HasObservers<I, OT, S>,
+    OT: ObserversTuple<I, S>,
+{
     fn perform_all(
         &mut self,
         _fuzzer: &mut Z,
@@ -50,10 +62,12 @@ impl<E, F, EM, S, Z> FilterStagesTuple<E, F, EM, S, Z> for () {
     }
 }
 
-impl<E, F, EM, S, Z, Head, Tail> FilterStagesTuple<E, F, EM, S, Z> for (Head, Tail)
+impl<E, F, EM, I, OT, S, Z, Head, Tail> FilterStagesTuple<E, F, EM, I, OT, S, Z> for (Head, Tail)
 where
-    Head: FilterStage<E, F, EM, S, Z>,
-    Tail: FilterStagesTuple<E, F, EM, S, Z>,
+    Head: FilterStage<E, F, EM, I, OT, S, Z>,
+    Tail: FilterStagesTuple<E, F, EM, I, OT, S, Z>,
+    E: HasObservers<I, OT, S>,
+    OT: ObserversTuple<I, S>,
 {
     fn perform_all(
         &mut self,
@@ -71,7 +85,7 @@ where
     }
 }
 
-impl<C, E, F, EM, I, M, OT, R, S, Z> FilterStage<E, F, EM, S, Z>
+impl<C, E, F, EM, I, M, OT, R, S, Z> FilterStage<E, F, EM, I, OT, S, Z>
     for StdMutationalStage<C, E, EM, I, M, R, S, Z>
 where
     C: Corpus<I>,
@@ -119,7 +133,10 @@ where
                 (b * batch_size..).zip(batch.into_iter().zip(pass_prob.into_iter()))
             {
                 if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
+                    let input_clone = input.clone();  //TODO: (yun) execution moves the input, try another approach?
                     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
+                    // feedback samples to filter
+                    filter.observe(executor.observers(), &input_clone);
                     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
                 }
             }
@@ -146,8 +163,10 @@ where
                 (num - batch.len()..).zip(batch.into_iter().zip(pass_prob.into_iter()))
             {
                 if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
+                    let input_clone = input.clone();
                     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
-                    
+                    // feedback samples to filter
+                    filter.observe(executor.observers(), &input_clone);
                     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
                 }
             }

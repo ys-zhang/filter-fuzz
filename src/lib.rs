@@ -9,6 +9,8 @@ use libafl::{
   fuzzer::{HasCorpusScheduler, StdFuzzer},
   inputs::Input,
   state::{HasClientPerfMonitor, HasExecutions},
+  executors::HasObservers,
+  observers::ObserversTuple,
   Error,
 };
 
@@ -56,12 +58,14 @@ impl<C, CS, E, EM, F, FLT, I, OF, OT, S, ST, SC> FilterFuzzer<E, FLT, EM, I, S, 
   for StdFuzzer<C, CS, F, I, OF, OT, S, SC>
 where
   CS: CorpusScheduler<I, S>,
+  E: HasObservers<I, OT, S>,
   EM: EventManager<E, I, S, Self>,
   F: Feedback<I, S>,
   I: Input,
   S: HasClientPerfMonitor + HasExecutions,
   OF: Feedback<I, S>,
-  ST: FilterStagesTuple<E, FLT, EM, S, Self>,
+  OT: ObserversTuple<I, S>,
+  ST: FilterStagesTuple<E, FLT, EM, I, OT, S, Self>,
 {
   fn filter_fuzz_one(
     &mut self,
