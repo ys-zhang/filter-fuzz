@@ -67,3 +67,22 @@ where
     todo!("yun")
   }
 }
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn test_run_py_script() {
+    use std::process::Command;
+    // use std::io::{Write, stderr};
+    // Command::new("pwd").spawn().unwrap();
+    let rst = Command::new("python3")
+      .arg("./src/py/create_model.py")
+      .args(["-m", "test"])
+      .output()
+      .expect("Fail run py script");
+    let s = String::from_utf8(rst.stdout).unwrap();
+    // stderr().write(&rst.stderr).unwrap();
+    assert_eq!(s, "test\n".to_string());
+  }
+}
+

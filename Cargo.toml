@@ -9,3 +9,4 @@ edition = "2021"
 libafl = "0.7.0"
 tensorflow = "0.17.0"
 num-traits = "*"
+clap = { version = "3.0.0-rc.4", features = ["default"] }

@@ -1,5 +1,5 @@
-mod stages;
-mod filter;
+pub mod stages;
+pub mod filter;
 
 use libafl::{
   bolts::current_time,
@@ -19,7 +19,7 @@ use crate::stages::*;
 
 
 /// Trait mimics libafl::fuzzer::Fuzzer;
-pub trait FilterFuzzer<E, F, EM, I, S, ST>
+pub trait FilterFuzzer<E, EM, F, I, S, ST>
 where
   I: Input,
   EM: ProgressReporter<I>,
@@ -54,7 +54,7 @@ where
   }
 }
 
-impl<C, CS, E, EM, F, FLT, I, OF, OT, S, ST, SC> FilterFuzzer<E, FLT, EM, I, S, ST>
+impl<C, CS, E, EM, F, FLT, I, OF, OT, S, ST, SC> FilterFuzzer<E, EM, FLT, I, S, ST>
   for StdFuzzer<C, CS, F, I, OF, OT, S, SC>
 where
   CS: CorpusScheduler<I, S>,
@@ -65,7 +65,7 @@ where
   S: HasClientPerfMonitor + HasExecutions,
   OF: Feedback<I, S>,
   OT: ObserversTuple<I, S>,
-  ST: FilterStagesTuple<E, FLT, EM, I, OT, S, Self>,
+  ST: FilterStagesTuple<E, EM, FLT, I, OT, S, Self>,
 {
   fn filter_fuzz_one(
     &mut self,
@@ -87,10 +87,4 @@ where
 
 
 #[cfg(test)]
-mod tests {
-  #[test]
-  fn it_works() {
-    let result = 2 + 2;
-    assert_eq!(result, 4);
-  }
-}
+mod tests {}

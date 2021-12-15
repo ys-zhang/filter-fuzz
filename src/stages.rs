@@ -12,7 +12,7 @@ use libafl::{
     Error,
 };
 
-pub trait FilterStage<E, F, EM, I, OT, S, Z>
+pub trait FilterStage<E, EM, F, I, OT, S, Z>
 where
     E: HasObservers<I, OT, S>,
     OT: ObserversTuple<I, S>,
@@ -28,7 +28,7 @@ where
     ) -> Result<(), Error>;
 }
 
-pub trait FilterStagesTuple<E, F, EM, I, OT, S, Z>
+pub trait FilterStagesTuple<E, EM, F, I, OT, S, Z>
 where
     E: HasObservers<I, OT, S>,
     OT: ObserversTuple<I, S>,
@@ -44,7 +44,7 @@ where
     ) -> Result<(), Error>;
 }
 
-impl<E, F, EM, I, OT, S, Z> FilterStagesTuple<E, F, EM, I, OT, S, Z> for ()
+impl<E, EM, F, I, OT, S, Z> FilterStagesTuple<E, EM, F, I, OT, S, Z> for ()
 where
     E: HasObservers<I, OT, S>,
     OT: ObserversTuple<I, S>,
@@ -62,10 +62,10 @@ where
     }
 }
 
-impl<E, F, EM, I, OT, S, Z, Head, Tail> FilterStagesTuple<E, F, EM, I, OT, S, Z> for (Head, Tail)
+impl<E, EM, F, I, OT, S, Z, Head, Tail> FilterStagesTuple<E, EM, F, I, OT, S, Z> for (Head, Tail)
 where
-    Head: FilterStage<E, F, EM, I, OT, S, Z>,
-    Tail: FilterStagesTuple<E, F, EM, I, OT, S, Z>,
+    Head: FilterStage<E, EM, F, I, OT, S, Z>,
+    Tail: FilterStagesTuple<E, EM, F, I, OT, S, Z>,
     E: HasObservers<I, OT, S>,
     OT: ObserversTuple<I, S>,
 {
@@ -85,7 +85,7 @@ where
     }
 }
 
-impl<C, E, F, EM, I, M, OT, R, S, Z> FilterStage<E, F, EM, I, OT, S, Z>
+impl<C, E, EM, F, I, M, OT, R, S, Z> FilterStage<E, EM, F, I, OT, S, Z>
     for StdMutationalStage<C, E, EM, I, M, R, S, Z>
 where
     C: Corpus<I>,
