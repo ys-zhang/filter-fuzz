@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 libafl = "0.7.0"
 tensorflow = "0.17.0"
+num-traits = "*"

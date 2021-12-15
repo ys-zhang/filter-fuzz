@@ -7,6 +7,8 @@ use libafl::{
     mutators::Mutator,
     stages::{MutationalStage, StdMutationalStage},
     state::{HasClientPerfMonitor, HasCorpus, HasRand},
+    executors::HasObservers,
+    observers::ObserversTuple,
     Error,
 };
 
@@ -69,13 +71,15 @@ where
     }
 }
 
-impl<C, E, F, EM, I, M, R, S, Z> FilterStage<E, F, EM, S, Z>
+impl<C, E, F, EM, I, M, OT, R, S, Z> FilterStage<E, F, EM, S, Z>
     for StdMutationalStage<C, E, EM, I, M, R, S, Z>
 where
     C: Corpus<I>,
+    E: HasObservers<I, OT, S>,
     F: Filter<I, S>,
     M: Mutator<I, S>,
     I: Input,
+    OT: ObserversTuple<I, S>,
     R: Rand,
     S: HasClientPerfMonitor + HasCorpus<C, I> + HasRand<R>,
     Z: Evaluator<E, EM, I, S>,
