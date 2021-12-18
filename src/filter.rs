@@ -70,19 +70,32 @@ where
 
 #[cfg(test)]
 mod tests {
+  use std::process::Command;
+  const PY: &str = "python3";
+  const SCRIPT: &str = "src/py/create_model.py";
+
   #[test]
-  fn test_run_py_script() {
-    use std::process::Command;
-    // use std::io::{Write, stderr};
-    // Command::new("pwd").spawn().unwrap();
-    let rst = Command::new("python3")
-      .arg("./src/py/create_model.py")
+  fn run_py_script() {
+    let rst = Command::new(PY)
+      .arg(SCRIPT)
       .args(["-m", "test"])
       .output()
       .expect("Fail run py script");
     let s = String::from_utf8(rst.stdout).unwrap();
     // stderr().write(&rst.stderr).unwrap();
     assert_eq!(s, "test\n".to_string());
+  }
+
+  #[test]
+  fn load_tf_model() {
+    let rst = Command::new(PY)
+      .arg(SCRIPT)
+      .args(["-m", "dense"])
+      .args(["-i", "512"])
+      .args(["-o", "2048"])
+      .args(["-n", "dense"])
+      .output().expect("failed to command create model");
+    assert!(rst.status.success());
   }
 }
 
