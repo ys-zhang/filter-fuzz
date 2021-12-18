@@ -71,6 +71,9 @@ where
 #[cfg(test)]
 mod tests {
   use std::process::Command;
+  use std::path::PathBuf;
+  use tensorflow as tf;
+
   const PY: &str = "python3";
   const SCRIPT: &str = "src/py/create_model.py";
 
@@ -88,14 +91,28 @@ mod tests {
 
   #[test]
   fn load_tf_model() {
-    let rst = Command::new(PY)
-      .arg(SCRIPT)
-      .args(["-m", "dense"])
-      .args(["-i", "512"])
-      .args(["-o", "2048"])
-      .args(["-n", "dense"])
-      .output().expect("failed to command create model");
-    assert!(rst.status.success());
+    // generate default dense model for 
+    let model_name = "test-model";
+
+    // let rst = Command::new(PY)
+    //   .arg(SCRIPT)
+    //   .args(["-m", "dense"])
+    //   .args(["-i", "512"])
+    //   .args(["-o", "2048"])
+    //   .args(["-n", model_name])
+    //   .output()
+    //   .expect("failed to command create model");
+    // assert!(rst.status.success());
+
+    // try load model
+    let mut model_dir = PathBuf::from("./models");
+    model_dir.push(model_name);
+    let mut graph = tf::Graph::new();
+    let bundle = tf::SavedModelBundle::load(
+      &tf::SessionOptions::new(),
+      &["train"],
+      &mut graph,
+      model_dir,
+    ).expect("Failed loading tensorflow keras model");
   }
 }
-

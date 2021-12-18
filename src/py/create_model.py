@@ -33,10 +33,11 @@ def new_parser():
 
 
 def new_dense_model(in_dim: int, out_dim: int) -> K.Model:
-    inputs = K.Input(name="input", shape=(in_dim,), name="inputs")
+    inputs = K.Input(name="inputs", shape=(in_dim,))
     layer1 = K.layers.Dense(in_dim // 64, activation="relu")(inputs)
     layer2 = K.layers.Dense(128, activation="relu")(layer1)
-    outputs = K.layers.Dense(out_dim, activation="sigmoid")(layer2, name="outputs")
+    outputs = K.layers.Dense(
+        out_dim, activation="sigmoid", name="outputs")(layer2)
     model = K.Model(inputs=inputs, outputs=outputs)
     opt = K.optimizers.Adam(learning_rate=.0001)
     model.compile(
@@ -58,7 +59,7 @@ def run(args):
         sys.exit(1)
 
 
-def run_test(args):
+def run_test(_args):
     print("test")
 
 
