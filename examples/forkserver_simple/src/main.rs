@@ -26,6 +26,13 @@ use std::path::PathBuf;
 
 use clap::{App, Arg};
 
+
+use filter_fuzz::{
+    filter::CovFilter,
+    FilterFuzzer,
+};
+
+
 #[allow(clippy::similar_names)]
 pub fn main() {
     let res = App::new("forkserver_simple")
@@ -168,7 +175,18 @@ pub fn main() {
     let mutator = StdScheduledMutator::new(havoc_mutations());
     let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
-    fuzzer
-        .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-        .expect("Error in the fuzzing loop");
+
+    // fuzzer
+    //     .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
+    //     .expect("Error in the fuzzing loop");
+
+    let mut filter = CovFilter::<_, HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>,_>::new("shared_mem", 512);
+
+    fuzzer.filter_fuzz_loop(
+        &mut stages,
+        &mut executor,
+        &mut filter,
+        &mut state,
+        &mut mgr
+    ).expect("Error in the filter fuzz loop");
 }

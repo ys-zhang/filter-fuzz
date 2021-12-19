@@ -41,8 +41,23 @@ where
   /// name used get the MapObserver from ObserversTuple
   name: String,
   batch_size: usize,
-  model: tf::SavedModelBundle,
+  // model: tf::SavedModelBundle,
   phantom: PhantomData<(I, O, T)>,
+}
+
+
+impl<I, O, T> CovFilter<I, O, T>
+where 
+  O: MapObserver<T>,
+  T: tf::TensorType + PrimInt + Clone + Debug,
+{
+  pub fn new(name: &str, batch_size: usize) -> Self {
+    Self {
+      name: name.to_string(),
+      batch_size,
+      phantom: PhantomData,
+    }
+  }
 }
 
 impl<I, O, S, T> Filter<I, S> for CovFilter<I, O, T>
@@ -64,7 +79,7 @@ where
   fn observe<OT: ObserversTuple<I, S>>(&mut self, observers: &OT, _input: &I) {
     let observer = observers.match_name::<O>(&self.name).unwrap();
     let _output = observer.as_tensor().unwrap();
-    todo!("yun")
+    // TODO: (yun) observe the sample
   }
 }
 

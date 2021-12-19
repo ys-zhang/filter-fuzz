@@ -2,8 +2,14 @@
 name = "filter_fuzz"
 version = "0.1.0"
 edition = "2021"
+autoexamples = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[example]]
+# field ref see: https://doc.rust-lang.org/cargo/reference/cargo-targets.html#configuring-a-target
+name = "forkserver_simple"
+path = "examples/forkserver_simple/src/main.rs"
 
 [dependencies]
 libafl = "0.7.0"

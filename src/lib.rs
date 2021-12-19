@@ -16,6 +16,7 @@ use libafl::{
 
 use std::time::Duration;
 use crate::stages::*;
+use crate::filter::Filter;
 
 
 /// Trait mimics libafl::fuzzer::Fuzzer;
@@ -61,6 +62,7 @@ where
   E: HasObservers<I, OT, S>,
   EM: EventManager<E, I, S, Self>,
   F: Feedback<I, S>,
+  FLT: Filter<I, S>,
   I: Input,
   S: HasClientPerfMonitor + HasExecutions,
   OF: Feedback<I, S>,
