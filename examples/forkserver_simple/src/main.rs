@@ -180,7 +180,7 @@ pub fn main() {
     //     .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
     //     .expect("Error in the fuzzing loop");
 
-    let mut filter = CovFilter::<_, HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>,_>::new("shared_mem", 512);
+    let mut filter = CovFilter::<_, HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>,_>::new("shared_mem", 128);
 
     fuzzer.filter_fuzz_loop(
         &mut stages,

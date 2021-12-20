@@ -2,6 +2,7 @@ BUILD_PROFILE = debug
 OUT_DIR = target/$(BUILD_PROFILE)
 
 CC = clang
+LLVM_CONFIG = llvm-config-12
 
 AFL_URL = https://github.com/AFLplusplus/AFLplusplus
 AFL_DIR = AFLplusplus
@@ -11,17 +12,21 @@ EXAMPLE_DIR = examples/forkserver_simple
 EXAMPLE_TARGET = $(EXAMPLE_DIR)/src/program.c
 
 
+forkserver-simple: afl
+	cargo run --example forkserver_simple -- $(OUT_DIR)/program $(EXAMPLE_DIR)/corpus
+
+afl: aflplusplus $(EXAMPLE_TARGET)
+	@# compile target program
+	$(AFL_CC) $(EXAMPLE_TARGET) -o $(OUT_DIR)/program
+
+
 aflplusplus:
 	@if [ ! -d $(AFL_DIR) ]; then \
 		git clone $(AFL_URL) -o $(AFL_DIR); \
 		cd $(AFL_DIR); \
+		export LLVM_CONFIG=$(LLVM_CONFIG); \
 		make all; \
 	fi
-
-
-afl: aflplusplus $(EXAMPLE_TARGET)
-	# compile target program
-	$(AFL_CC) $(EXAMPLE_TARGET) -o $(OUT_DIR)/program
 
 
 clean:

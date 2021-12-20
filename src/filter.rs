@@ -41,8 +41,13 @@ where
   /// name used get the MapObserver from ObserversTuple
   name: String,
   batch_size: usize,
+
+  num_obv: usize,
+  num_in: usize,
+
   // model: tf::SavedModelBundle,
   phantom: PhantomData<(I, O, T)>,
+  
 }
 
 
@@ -55,6 +60,8 @@ where
     Self {
       name: name.to_string(),
       batch_size,
+      num_in: 0,
+      num_obv: 0,
       phantom: PhantomData,
     }
   }
@@ -71,14 +78,19 @@ where
 
   fn run(&mut self, batch: Vec<I>, _state: &mut S, _corpus_id: usize) -> (Vec<I>, Vec<f32>) {
     // TODO: (yun) just for test make all inputs pass the filter
-    let mut prob = Vec::with_capacity(batch.len());
-    prob.fill(1.0);
+    let prob = batch.iter().map(|_| 1.0).collect();
+    self.num_in += batch.len();
+    // println!("Filter get inputs: {}", self.num_in);
     (batch, prob)
   }
 
   fn observe<OT: ObserversTuple<I, S>>(&mut self, observers: &OT, _input: &I) {
     let observer = observers.match_name::<O>(&self.name).unwrap();
     let _output = observer.as_tensor().unwrap();
+    self.num_obv += 1;
+    if self.num_obv % 1000 == 0 {
+      println!("Filter observed {}", self.num_obv);
+    }
     // TODO: (yun) observe the sample
   }
 }

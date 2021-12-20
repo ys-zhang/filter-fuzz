@@ -133,7 +133,8 @@ where
                 (b * batch_size..).zip(batch.into_iter().zip(pass_prob.into_iter()))
             {
                 if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
-                    let input_clone = input.clone();  //TODO: (yun) execution moves the input, try another approach?
+                    let input_clone = input.clone();  
+                    //TODO: (yun) execution moves the input, try another approach?
                     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
                     // feedback samples to filter
                     filter.observe(executor.observers(), &input_clone);
@@ -143,9 +144,9 @@ where
         }
 
         // last one may not be a full batch
-        if num % num_batch != 0 {
-            let mut batch = Vec::with_capacity(num % num_batch);
-            for i in (num_batch - 1) * batch_size..num {
+        if num % batch_size != 0 {
+            let mut batch = Vec::with_capacity(num % batch_size);
+            for i in num_batch * batch_size..num {
                 let mut input = state
                     .corpus()
                     .get(corpus_idx)?
