@@ -29,6 +29,10 @@ aflplusplus:
 	fi
 
 
+model-dense:
+	@rm -rf models/test-model
+	python3 src/py/create_model.py -m dense -i 512 -o 2048 -n test-model
+
 clean:
 	cargo clean
 	rm -rf $(AFL_DIR)
