@@ -133,7 +133,7 @@ where
                 (b * batch_size..).zip(batch.into_iter().zip(pass_prob.into_iter()))
             {
                 if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
-                    let input_clone = input.clone();  
+                    let input_clone = input.clone();
                     //TODO: (yun) execution moves the input, try another approach?
                     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
                     // feedback samples to filter
