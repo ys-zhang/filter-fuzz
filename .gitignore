@@ -2,7 +2,9 @@
 Cargo.lock
 .DS_Store
 .vscode
+.idea
 *.bak
+.cur_input
 
 /AFLplusplus
 /models

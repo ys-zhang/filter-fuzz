@@ -39,7 +39,7 @@ class DenseModel(K.Model):
     the signature for prediction, we also need the signature for
     training.
 
-    for detail of Tensorflow SavedModel and tf.function, see:
+    for detail of Tensorflow SavedModel and `tf.function`, see:
         1. Introduction to graphs and `tf.function`
            (https://www.tensorflow.org/guide/intro_to_graphs)
         2. A tour of saved model signatures
@@ -57,7 +57,7 @@ class DenseModel(K.Model):
         self.opt = K.optimizers.Adam(learning_rate=.0001)
         self.loss = K.losses.binary_crossentropy
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         t = self.layer_1(x)
         t = self.layer_2(t)
         y = self.outputs_layer(t)
@@ -65,7 +65,8 @@ class DenseModel(K.Model):
 
     @tf.function
     def predict(self, x):
-        return self(x, training=False)
+        y_hat = self(x, training=False)
+        return {"y_hat": y_hat}
 
     @tf.function
     def train(self, x, y):
@@ -78,7 +79,7 @@ class DenseModel(K.Model):
 
     @property
     def signatures(self):
-        x = tf.TensorSpec([None, self.in_dim], tf.float32, name="x")
+        x = tf.TensorSpec([None, self.in_dim], tf.uint8, name="x")
         y = tf.TensorSpec([None, self.out_dim], tf.float32, name="y")
         return {
             "predict": self.predict.get_concrete_function(x),
@@ -108,6 +109,6 @@ def run_dense(args):
 
 
 if __name__ == "__main__":
-    parser = new_parser()
-    args = parser.parse_args()
-    run(args)
+    arg_parser = new_parser()
+    arguments = arg_parser.parse_args()
+    run(arguments)
