@@ -1,8 +1,7 @@
-use super::tf;
-use super::tf::Tensor;
-use std::path;
-use std::process::Command;
-use std::ptr;
+use super::tf::{self, Tensor};
+use libafl::observers::map::MapObserver;
+use num_traits::PrimInt;
+use std::{fmt::Debug, path, process::Command, ptr};
 
 pub const PY: &str = "python3";
 pub const SCRIPT: &str = "src/py/create_model.py";
@@ -37,6 +36,30 @@ pub fn load_tf_model(model_name: &str) -> (tf::Graph, tf::SavedModelBundle) {
     .expect("Failed loading tensorflow keras model");
 
     (graph, bundle)
+}
+
+/// calc similarity btw coverage maps
+#[inline]
+pub fn similarity(cov_map_a: &[f32], cov_map_b: &[f32]) -> f32 {
+    todo!()
+}
+
+pub trait AsTenser<T>
+where
+    T: tf::TensorType,
+{
+    fn as_tensor(&self) -> Option<tf::Tensor<T>>;
+}
+
+impl<S, T> AsTenser<S> for T
+where
+    T: MapObserver<S>,
+    S: tf::TensorType + PrimInt + Copy + Default + Debug,
+{
+    fn as_tensor(&self) -> Option<tf::Tensor<S>> {
+        let map = self.map()?;
+        tf::Tensor::new(&[map.len() as u64]).with_values(map).ok()
+    }
 }
 
 #[derive(Debug)]
@@ -132,7 +155,7 @@ impl Model {
     }
 
     // create a new tensor and copy the inputs to the tensor
-    fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
+    pub fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
         let n = xs.len(); // number of samples/inputs
         let mut tensor = tf::Tensor::<T>::new(&[n as u64, dim as u64]);
         let mut ts_ptr = tensor.as_mut_ptr();

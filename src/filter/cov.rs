@@ -4,7 +4,27 @@ use libafl::{
     observers::{map::MapObserver, ObserversTuple},
 };
 use num_traits::{cast::cast, PrimInt};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, vec};
+
+struct CovFilterStat {
+    num_in: usize,  // number of inputs fed in
+    num_out: usize, // number of inputs that gets out of the filter
+    num_obv: usize, // number of real execution
+
+    std_hits: Vec<f32>, // standerized hits
+}
+
+impl CovFilterStat {
+    fn new() -> CovFilterStat {
+        CovFilterStat {
+            num_in: 0,
+            num_out: 0,
+            num_obv: 0,
+
+            std_hits: vec![],
+        }
+    }
+}
 
 #[allow(unused)]
 pub struct CovFilter<I, O, T>
@@ -16,8 +36,7 @@ where
     name: String,
     batch_size: usize,
 
-    num_obv: usize, // number of real execution
-    num_in: usize,  // number of inputs fed in
+    stat: CovFilterStat,
 
     obv_xs: Vec<Vec<u8>>,
     obv_ys: Vec<Vec<f32>>,
@@ -38,9 +57,8 @@ where
         Self {
             name: name.to_string(),
             batch_size,
+            stat: CovFilterStat::new(),
 
-            num_in: 0,
-            num_obv: 0,
             obv_xs,
             obv_ys,
 
@@ -56,12 +74,19 @@ where
     O: MapObserver<T>,
     T: tf::TensorType + PrimInt + Clone + Debug,
 {
-    fn filter(&self, ys: &tf::Tensor<f32>) -> Vec<f32> {
+    fn filter(&mut self, ys: &tf::Tensor<f32>) -> Vec<f32> {
         // (num_of_sample, sample_dim)
         let (n, m) = {
             let shape = &ys.shape();
             (shape[0].unwrap() as usize, shape[1].unwrap() as usize)
         };
+
+        self.stat.num_in += n;
+
+        let similarities: Vec<_> = ys
+            .windows(m)
+            .map(|y| utils::similarity(y, &self.stat.std_hits))
+            .collect();
 
         todo!("yun")
     }
@@ -78,7 +103,6 @@ where
     }
 
     fn run(&mut self, batch: Vec<I>, _state: &mut S, _corpus_id: usize) -> (Vec<I>, Vec<f32>) {
-        self.num_in += batch.len();
         let xs: Vec<&[u8]> = batch.iter().map(|x| x.bytes()).collect();
         let ys = self.model.predict(&xs);
         let prob = self.filter(&ys);
@@ -88,7 +112,7 @@ where
     fn observe<OT: ObserversTuple<I, S>>(&mut self, observers: &OT, input: &I) {
         let observer = observers.match_name::<O>(&self.name).unwrap();
         let map = observer.map().unwrap();
-        self.num_obv += 1;
+        self.stat.num_obv += 1;
         // observe the sample
         if self.obv_xs.len() == self.batch_size {
             let xs: Vec<_> = self.obv_xs.iter().map(|x| x.as_slice()).collect();

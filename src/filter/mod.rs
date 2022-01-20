@@ -1,29 +1,9 @@
+use libafl::observers::ObserversTuple;
 use std::fmt::Debug;
 use tensorflow as tf;
-use num_traits::PrimInt;
-use libafl::observers::{map::MapObserver, ObserversTuple};
 
-mod utils;
 mod cov;
-pub use cov::CovFilter;
-
-pub trait AsTenser<T>
-where
-    T: tf::TensorType,
-{
-    fn as_tensor(&self) -> Option<tf::Tensor<T>>;
-}
-
-impl<S, T> AsTenser<S> for T
-where
-    T: MapObserver<S>,
-    S: tf::TensorType + PrimInt + Copy + Default + Debug,
-{
-    fn as_tensor(&self) -> Option<tf::Tensor<S>> {
-        let map = self.map()?;
-        tf::Tensor::new(&[map.len() as u64]).with_values(map).ok()
-    }
-}
+mod utils;
 
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
@@ -35,6 +15,7 @@ pub trait Filter<I, S> {
     fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I);
 }
 
+pub use cov::CovFilter;
 
 #[cfg(test)]
 mod tests {
