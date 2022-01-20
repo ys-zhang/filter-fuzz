@@ -11,18 +11,24 @@ struct CovFilterStat {
     num_out: usize, // number of inputs that gets out of the filter
     num_obv: usize, // number of real execution
 
-    std_hits: Vec<f32>, // standerized hits
+    hits: Vec<f32>,
+    hits_normed: Vec<f32>, // standerized hits
 }
 
 impl CovFilterStat {
-    fn new() -> CovFilterStat {
+    fn new(cov_map_len: usize) -> CovFilterStat {
         CovFilterStat {
             num_in: 0,
             num_out: 0,
             num_obv: 0,
 
-            std_hits: vec![],
+            hits: vec![0.0; cov_map_len],
+            hits_normed: vec![0.0; cov_map_len],
         }
+    }
+
+    fn update_std_hits(&mut self, _ys: &[&[f32]]) {
+        todo!("yun")
     }
 }
 
@@ -57,7 +63,7 @@ where
         Self {
             name: name.to_string(),
             batch_size,
-            stat: CovFilterStat::new(),
+            stat: CovFilterStat::new(model.out_dim),
 
             obv_xs,
             obv_ys,
@@ -85,7 +91,7 @@ where
 
         let similarities: Vec<_> = ys
             .windows(m)
-            .map(|y| utils::similarity(y, &self.stat.std_hits))
+            .map(|y| utils::similarity(y, &self.stat.hits_normed))
             .collect();
 
         todo!("yun")
@@ -104,8 +110,9 @@ where
 
     fn run(&mut self, batch: Vec<I>, _state: &mut S, _corpus_id: usize) -> (Vec<I>, Vec<f32>) {
         let xs: Vec<&[u8]> = batch.iter().map(|x| x.bytes()).collect();
-        let ys = self.model.predict(&xs);
-        let prob = self.filter(&ys);
+        let ys_normed = self.model.predict_normed(&xs); // `ys` is normalized
+        let prob = self.filter(&ys_normed);
+        // self.update_hits(&ys);
         (batch, prob)
     }
 
@@ -117,6 +124,9 @@ where
         if self.obv_xs.len() == self.batch_size {
             let xs: Vec<_> = self.obv_xs.iter().map(|x| x.as_slice()).collect();
             let ys: Vec<_> = self.obv_ys.iter().map(|y| y.as_slice()).collect();
+
+            self.stat.update_std_hits(&ys);
+
             self.model.train(&xs, &ys, 32); // TODO: hardcode, train for 32 steps
             self.obv_xs.truncate(0);
             self.obv_ys.truncate(0);

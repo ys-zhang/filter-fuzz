@@ -40,7 +40,7 @@ pub fn load_tf_model(model_name: &str) -> (tf::Graph, tf::SavedModelBundle) {
 
 /// calc similarity btw coverage maps
 #[inline]
-pub fn similarity(cov_map_a: &[f32], cov_map_b: &[f32]) -> f32 {
+pub fn similarity(_cov_map_a: &[f32],_cov_map_b: &[f32]) -> f32 {
     todo!()
 }
 
@@ -87,7 +87,9 @@ impl Model {
         }
     }
 
-    pub fn predict(&self, xs: &[&[u8]]) -> Tensor<f32> {
+    #[allow(unused)]
+    #[inline]
+    pub fn predict(&self, xs: &[&[u8]]) -> (Tensor<f32>, Tensor<f32>) {
         let xs = Self::new_tensor_from(xs, self.in_dim);
         let session = &self.bundle.session;
         let sig = self
@@ -97,6 +99,61 @@ impl Model {
             .unwrap();
         let x_info = sig.get_input("x").unwrap();
         let y_hat_info = sig.get_output("y_hat").unwrap();
+        let y_hat_normed_info = sig.get_output("y_hat_normed").unwrap();
+        let op_x = self
+            .graph
+            .operation_by_name(&x_info.name().name)
+            .unwrap()
+            .unwrap();
+        let op_y_hat = self
+            .graph
+            .operation_by_name(&y_hat_info.name().name)
+            .unwrap()
+            .unwrap();
+        let op_y_hat_normed = self
+            .graph
+            .operation_by_name(&y_hat_normed_info.name().name)
+            .unwrap()
+            .unwrap();
+
+        let mut step = tf::SessionRunArgs::new();
+        step.add_feed(&op_x, 0, &xs);
+        step.add_target(&op_y_hat);
+        let y_hat_tok = step.request_fetch(&op_y_hat, 0);
+        let y_hat_normed_tok  = step.request_fetch(&op_y_hat_normed, 0);
+        session.run(&mut step).unwrap();
+
+        // let mut output_step = tf::SessionRunArgs::new();
+        // let y_hat_ix = output_step.request_fetch(&op_y_hat, 0);
+        // session.run(&mut output_step).unwrap();
+
+        let y_hat = step.fetch(y_hat_tok).unwrap();
+        let y_hat_normed = step.fetch(y_hat_normed_tok).unwrap();
+        (y_hat, y_hat_normed)
+    }
+    
+    #[allow(unused)]
+    #[inline]
+    pub fn predict_unnormed(&self, xs: &[&[u8]]) -> Tensor<f32> {
+        self.predict_and_fetch(xs, "y_hat")
+    }
+
+    #[allow(unused)]
+    #[inline]
+    pub fn predict_normed(&self, xs: &[&[u8]]) -> Tensor<f32> {
+        self.predict_and_fetch(xs, "y_hat_normed")
+    }
+
+    pub fn predict_and_fetch(&self, xs: &[&[u8]], output_name: &str) -> Tensor<f32> {
+        let xs = Self::new_tensor_from(xs, self.in_dim);
+        let session = &self.bundle.session;
+        let sig = self
+            .bundle
+            .meta_graph_def()
+            .get_signature("predict")
+            .unwrap();
+        let x_info = sig.get_input("x").unwrap();
+        let y_hat_info = sig.get_output(output_name).unwrap();
         let op_x = self
             .graph
             .operation_by_name(&x_info.name().name)
@@ -121,6 +178,7 @@ impl Model {
         let y_hat: Tensor<f32> = step.fetch(y_hat_tok).unwrap();
         y_hat
     }
+
 
     pub fn train(&self, xs: &[&[u8]], ys: &[&[f32]], nstep: usize) {
         let xs = Self::new_tensor_from(xs, self.in_dim);

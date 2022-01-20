@@ -50,7 +50,7 @@ mod tests {
         assert_eq!(2048, model.out_dim);
         // test predict
         let x: Vec<u8> = vec![0 as u8, 0 as u8, 0 as u8];
-        let y_hat = model.predict(&[&x]);
+        let (y_hat, _) = model.predict(&[&x]);
         assert_eq!(
             y_hat.shape(),
             tf::Shape::new(Some(vec![Some(1), Some(model.out_dim as i64)]))

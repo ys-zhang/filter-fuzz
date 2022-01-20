@@ -66,7 +66,9 @@ class DenseModel(K.Model):
     @tf.function
     def predict(self, x):
         y_hat = self(x, training=False)
-        return {"y_hat": y_hat}
+        # need to normalise y_hat
+        y_hat_normed, _ = tf.linalg.normalize(y_hat, axis=0)
+        return {"y_hat": y_hat, "y_hat_normed": y_hat_normed}
 
     @tf.function
     def train(self, x, y):
