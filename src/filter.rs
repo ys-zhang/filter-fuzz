@@ -91,7 +91,7 @@ where
         self.num_in += batch.len();
         let xs: Vec<&[u8]> = batch.iter().map(|x| x.bytes()).collect();
         let ys = self.model.predict(&xs);
-        let prob = self.filter(ys);
+        let prob = self.filter(&ys);
         (batch, prob)
     }
 
@@ -119,7 +119,13 @@ where
     O: MapObserver<T>,
     T: tf::TensorType + PrimInt + Clone + Debug,
 {
-    fn filter(&self, _ys: tf::Tensor<f32>) -> Vec<f32> {
+    fn filter(&self, ys: &tf::Tensor<f32>) -> Vec<f32> {
+        // (num_of_sample, sample_dim)
+        let (n, m) = {
+            let shape = &ys.shape();
+            (shape[0].unwrap() as usize, shape[1].unwrap() as usize)
+        };
+        
         todo!("yun")
     }
 }
