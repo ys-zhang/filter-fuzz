@@ -7,23 +7,23 @@ use num_traits::{cast::cast, PrimInt};
 use std::{marker::PhantomData, vec};
 
 struct CovFilterStat {
-    num_in: usize,  // number of inputs fed in
-    num_out: usize, // number of inputs that gets out of the filter
-    num_obv: usize, // number of real execution
-
-    hits: Vec<f32>,
+    num_in: usize,         // number of inputs fed in
+    num_out: usize,        // number of inputs that gets out of the filter
+    num_obv: usize,        // number of real execution
+    hits: Vec<f32>,        // sum of observed coverage map
     hits_normed: Vec<f32>, // standerized hits
+    sim_smpls: Vec<f32>,   // history of similarity value observed
 }
 
 impl CovFilterStat {
-    fn new(cov_map_len: usize) -> CovFilterStat {
-        CovFilterStat {
+    fn new(cov_map_len: usize, window_size: usize) -> CovFilterStat {
+        Self {
             num_in: 0,
             num_out: 0,
             num_obv: 0,
-
             hits: vec![0.0; cov_map_len],
             hits_normed: vec![0.0; cov_map_len],
+            sim_smpls: Vec::with_capacity(window_size),
         }
     }
 
@@ -89,12 +89,26 @@ where
 
         self.stat.num_in += n;
 
-        let similarities: Vec<_> = ys
-            .windows(m)
-            .map(|y| utils::similarity(y, &self.stat.hits_normed))
-            .collect();
+        let prob = {
+            let similarities: Vec<_> = ys
+                .windows(m)
+                .map(|y| Self::similarity(y, &self.stat.hits_normed))
+                .collect();
 
-        todo!("yun")
+            similarities
+        };
+        prob
+    }
+
+    /// calc similarity btw standardized coverage maps
+    /// the two coverage maps must have same length
+    #[inline]
+    fn similarity(std_cv_mp1: &[f32], std_cv_mp2: &[f32]) -> f32 {
+        std_cv_mp1
+            .iter()
+            .zip(std_cv_mp2.iter())
+            .map(|(s, t)| s * t)
+            .sum()
     }
 }
 
@@ -119,8 +133,14 @@ where
     fn observe<OT: ObserversTuple<I, S>>(&mut self, observers: &OT, input: &I) {
         let observer = observers.match_name::<O>(&self.name).unwrap();
         let map = observer.map().unwrap();
-        self.stat.num_obv += 1;
+
         // observe the sample
+        self.stat.num_obv += 1;
+        self.obv_xs.push(input.bytes().to_vec());
+        self.obv_ys
+            .push(map.iter().map(|&t| cast(t).unwrap()).collect());
+
+        // try train the model
         if self.obv_xs.len() == self.batch_size {
             let xs: Vec<_> = self.obv_xs.iter().map(|x| x.as_slice()).collect();
             let ys: Vec<_> = self.obv_ys.iter().map(|y| y.as_slice()).collect();
@@ -131,8 +151,5 @@ where
             self.obv_xs.truncate(0);
             self.obv_ys.truncate(0);
         }
-        self.obv_xs.push(input.bytes().to_vec());
-        self.obv_ys
-            .push(map.iter().map(|&t| cast(t).unwrap()).collect());
     }
 }

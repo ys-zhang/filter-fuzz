@@ -38,12 +38,6 @@ pub fn load_tf_model(model_name: &str) -> (tf::Graph, tf::SavedModelBundle) {
     (graph, bundle)
 }
 
-/// calc similarity btw coverage maps
-#[inline]
-pub fn similarity(_cov_map_a: &[f32],_cov_map_b: &[f32]) -> f32 {
-    todo!()
-}
-
 pub trait AsTenser<T>
 where
     T: tf::TensorType,
@@ -87,51 +81,73 @@ impl Model {
         }
     }
 
+    // create a new tensor and copy the inputs to the tensor
+    pub fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
+        let n = xs.len(); // number of samples/inputs
+        let mut tensor = tf::Tensor::<T>::new(&[n as u64, dim as u64]);
+        let mut ts_ptr = tensor.as_mut_ptr();
+        // copy xs to tensor
+        unsafe {
+            for x in xs {
+                ptr::copy_nonoverlapping(x.as_ptr(), ts_ptr, x.len());
+                ts_ptr = ts_ptr.add(dim);
+            }
+        }
+        tensor
+    }
+
+    /// Get the session of the tensorflow computation graph
+    pub fn session(&self) -> &tf::Session {
+        &self.bundle.session
+    }
+
+    pub fn get_signature(&self, name: &str) -> &tf::SignatureDef {
+        self.bundle.meta_graph_def().get_signature(name).unwrap()
+    }
+
     #[allow(unused)]
     #[inline]
     pub fn predict(&self, xs: &[&[u8]]) -> (Tensor<f32>, Tensor<f32>) {
         let xs = Self::new_tensor_from(xs, self.in_dim);
-        let session = &self.bundle.session;
-        let sig = self
-            .bundle
-            .meta_graph_def()
-            .get_signature("predict")
-            .unwrap();
-        let x_info = sig.get_input("x").unwrap();
-        let y_hat_info = sig.get_output("y_hat").unwrap();
-        let y_hat_normed_info = sig.get_output("y_hat_normed").unwrap();
-        let op_x = self
-            .graph
-            .operation_by_name(&x_info.name().name)
-            .unwrap()
-            .unwrap();
-        let op_y_hat = self
-            .graph
-            .operation_by_name(&y_hat_info.name().name)
-            .unwrap()
-            .unwrap();
-        let op_y_hat_normed = self
-            .graph
-            .operation_by_name(&y_hat_normed_info.name().name)
-            .unwrap()
-            .unwrap();
+        let sig = self.get_signature("predict");
+
+        let x = {
+            let info = sig.get_input("x").unwrap();
+            self.graph
+                .operation_by_name(&info.name().name)
+                .unwrap()
+                .unwrap()
+        };
+
+        let y_hat = {
+            let info = sig.get_output("y_hat").unwrap();
+            self.graph
+                .operation_by_name(&info.name().name)
+                .unwrap()
+                .unwrap()
+        };
+
+        let y_hat_normed = {
+            let info = sig.get_output("y_hat_normed").unwrap();
+            self.graph
+                .operation_by_name(&info.name().name)
+                .unwrap()
+                .unwrap()
+        };
 
         let mut step = tf::SessionRunArgs::new();
-        step.add_feed(&op_x, 0, &xs);
-        step.add_target(&op_y_hat);
-        let y_hat_tok = step.request_fetch(&op_y_hat, 0);
-        let y_hat_normed_tok  = step.request_fetch(&op_y_hat_normed, 0);
-        session.run(&mut step).unwrap();
-
-        // let mut output_step = tf::SessionRunArgs::new();
-        // let y_hat_ix = output_step.request_fetch(&op_y_hat, 0);
-        // session.run(&mut output_step).unwrap();
+        step.add_feed(&x, 0, &xs);
+        step.add_target(&y_hat);
+        step.add_target(&y_hat_normed);
+        let y_hat_tok = step.request_fetch(&y_hat, 0);
+        let y_hat_normed_tok = step.request_fetch(&y_hat_normed, 0);
+        self.session().run(&mut step).unwrap();
 
         let y_hat = step.fetch(y_hat_tok).unwrap();
         let y_hat_normed = step.fetch(y_hat_normed_tok).unwrap();
         (y_hat, y_hat_normed)
     }
-    
+
     #[allow(unused)]
     #[inline]
     pub fn predict_unnormed(&self, xs: &[&[u8]]) -> Tensor<f32> {
@@ -146,39 +162,29 @@ impl Model {
 
     pub fn predict_and_fetch(&self, xs: &[&[u8]], output_name: &str) -> Tensor<f32> {
         let xs = Self::new_tensor_from(xs, self.in_dim);
-        let session = &self.bundle.session;
-        let sig = self
-            .bundle
-            .meta_graph_def()
-            .get_signature("predict")
-            .unwrap();
-        let x_info = sig.get_input("x").unwrap();
-        let y_hat_info = sig.get_output(output_name).unwrap();
-        let op_x = self
-            .graph
-            .operation_by_name(&x_info.name().name)
-            .unwrap()
-            .unwrap();
-        let op_y_hat = self
-            .graph
-            .operation_by_name(&y_hat_info.name().name)
-            .unwrap()
-            .unwrap();
-
+        let sig = self.get_signature("predict");
+        let x = {
+            let info = sig.get_input("x").unwrap();
+            self.graph
+                .operation_by_name(&info.name().name)
+                .unwrap()
+                .unwrap()
+        };
+        let y = {
+            let info = sig.get_output(output_name).unwrap();
+            self.graph
+                .operation_by_name(&info.name().name)
+                .unwrap()
+                .unwrap()
+        };
         let mut step = tf::SessionRunArgs::new();
-        step.add_feed(&op_x, 0, &xs);
-        step.add_target(&op_y_hat);
-        let y_hat_tok = step.request_fetch(&op_y_hat, 0);
-        session.run(&mut step).unwrap();
+        step.add_feed(&x, 0, &xs);
+        step.add_target(&y);
+        let y_hat_tok = step.request_fetch(&y, 0);
+        self.session().run(&mut step).unwrap();
 
-        // let mut output_step = tf::SessionRunArgs::new();
-        // let y_hat_ix = output_step.request_fetch(&op_y_hat, 0);
-        // session.run(&mut output_step).unwrap();
-
-        let y_hat: Tensor<f32> = step.fetch(y_hat_tok).unwrap();
-        y_hat
+        step.fetch(y_hat_tok).unwrap()
     }
-
 
     pub fn train(&self, xs: &[&[u8]], ys: &[&[f32]], nstep: usize) {
         let xs = Self::new_tensor_from(xs, self.in_dim);
@@ -210,20 +216,5 @@ impl Model {
         for _ in 0..nstep {
             session.run(&mut step).unwrap();
         }
-    }
-
-    // create a new tensor and copy the inputs to the tensor
-    pub fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
-        let n = xs.len(); // number of samples/inputs
-        let mut tensor = tf::Tensor::<T>::new(&[n as u64, dim as u64]);
-        let mut ts_ptr = tensor.as_mut_ptr();
-        // copy xs to tensor
-        unsafe {
-            for x in xs {
-                ptr::copy_nonoverlapping(x.as_ptr(), ts_ptr, x.len());
-                ts_ptr = ts_ptr.add(dim);
-            }
-        }
-        tensor
     }
 }
