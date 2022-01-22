@@ -8,9 +8,8 @@ mod utils;
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
     fn batch_size(&self) -> usize;
-    /// run a batch, returns the batch itself together with
-    /// the probability to do real fuzzing on the target program
-    fn run(&mut self, batch: Vec<I>, state: &mut S, corpus_idx: usize) -> (Vec<I>, Vec<f32>);
+   
+    fn filter(&mut self, batch: &[I], state: &mut S, corpus_idx: usize) -> Vec<bool>;
     /// observe a new sample for the model
     fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I);
 }

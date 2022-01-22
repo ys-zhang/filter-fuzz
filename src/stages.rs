@@ -112,34 +112,25 @@ where
         let batch_size = filter.batch_size();
         let num_batch = num / batch_size;
 
+        let orig = state.corpus().get(corpus_idx)?.borrow_mut().load_input()?;
+        let mutator = self.mutator_mut();
         // foreach batch of inputs to be feed into filter
+
+        // for window in (0..num as i32)
         for b in 0..num_batch {
-            let mut batch = Vec::with_capacity(batch_size);
-            for i in b * batch_size..(b + 1) * batch_size {
-                let mut input = state
-                    .corpus()
-                    .get(corpus_idx)?
-                    .borrow_mut()
-                    .load_input()?
-                    .clone();
-                self.mutator_mut().mutate(state, &mut input, i as i32)?;
-                batch.push(input);
-            }
-            // runs ML model on the batch
-            // returns probability the inputs can pass the filter
-            let (batch, pass_prob) = filter.run(batch, state, corpus_idx);
-            // fuzz the batch
-            for (i, (input, prob)) in
-                (b * batch_size..).zip(batch.into_iter().zip(pass_prob.into_iter()))
-            {
-                if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
-                    let input_clone = input.clone();
-                    //TODO: (yun) execution moves the input, try another approach?
-                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
-                    // feedback samples to filter
-                    filter.observe(executor.observers(), &input_clone);
-                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-                }
+            let batch: Vec<I> = (b * batch_size..(b + 1) * batch_size)
+                .map(|i| {
+                    let mut input = orig.clone();
+                    mutator.mutate(state, &mut input, i as i32);
+                    input
+                })
+                .collect();
+            for input in filter.filter(&batch, state, corpus_idx) {
+                //TODO: (yun) execution moves the input, try another approach?
+                let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input.clone());
+                // feedback samples to filter
+                filter.observe(executor.observers(), &input_clone);
+                self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
             }
         }
 
