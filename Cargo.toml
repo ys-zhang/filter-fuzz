@@ -12,7 +12,8 @@ name = "forkserver_simple"
 path = "examples/forkserver_simple/src/main.rs"
 
 [dependencies]
-libafl = "0.7.0"
+libafl = "= 0.7.1"
 tensorflow = "0.17.0"
 num-traits = "*"
+# nalgebra = "*"
 clap = { version = "3.0.0-rc.4", features = ["default"] }

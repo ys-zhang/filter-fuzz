@@ -5,11 +5,9 @@ use libafl::{
     bolts::current_time,
     corpus::CorpusScheduler,
     events::{EventManager, ProgressReporter},
-    executors::HasObservers,
     feedbacks::Feedback,
     fuzzer::{HasCorpusScheduler, StdFuzzer},
     inputs::Input,
-    observers::ObserversTuple,
     state::{HasClientPerfMonitor, HasExecutions},
     Error,
 };
@@ -54,19 +52,17 @@ where
     }
 }
 
-impl<C, CS, E, EM, F, FLT, I, OF, OT, S, ST, SC> FilterFuzzer<E, EM, FLT, I, S, ST>
-    for StdFuzzer<C, CS, F, I, OF, OT, S, SC>
+impl<CS, E, EM, F, FLT, I, OF, OT, S, ST> FilterFuzzer<E, EM, FLT, I, S, ST>
+    for StdFuzzer<CS, F, I, OF, OT, S>
 where
     CS: CorpusScheduler<I, S>,
-    E: HasObservers<I, OT, S>,
     EM: EventManager<E, I, S, Self>,
     F: Feedback<I, S>,
     FLT: Filter<I, S>,
     I: Input,
     S: HasClientPerfMonitor + HasExecutions,
     OF: Feedback<I, S>,
-    OT: ObserversTuple<I, S>,
-    ST: FilterStagesTuple<E, EM, FLT, I, OT, S, Self>,
+    ST: FilterStagesTuple<E, EM, FLT, OT, S, Self>,
 {
     fn filter_fuzz_one(
         &mut self,

@@ -1,6 +1,5 @@
 use crate::filter::Filter;
 use libafl::{
-    bolts::rands::Rand,
     corpus::Corpus,
     executors::HasObservers,
     fuzzer::Evaluator,
@@ -11,12 +10,31 @@ use libafl::{
     state::{HasClientPerfMonitor, HasCorpus, HasRand},
     Error,
 };
+use std::iter::Iterator;
 
-pub trait FilterStage<E, EM, F, I, OT, S, Z>
+#[inline]
+fn new_batch<I, M, S>(
+    mutator: &mut M,
+    state: &mut S,
+    stage_idxes: impl Iterator<Item = i32>,
+    seed: &I,
+) -> Vec<I>
 where
-    E: HasObservers<I, OT, S>,
-    OT: ObserversTuple<I, S>,
+    I: Input,
+    M: Mutator<I, S>,
 {
+    stage_idxes
+        .map(|i| {
+            let mut input = seed.clone();
+            mutator
+                .mutate(state, &mut input, i)
+                .expect("Fail mutate seed");
+            input
+        })
+        .collect()
+}
+
+pub trait FilterStage<E, EM, F, OT, S, Z> {
     fn perform(
         &mut self,
         fuzzer: &mut Z,
@@ -28,11 +46,7 @@ where
     ) -> Result<(), Error>;
 }
 
-pub trait FilterStagesTuple<E, EM, F, I, OT, S, Z>
-where
-    E: HasObservers<I, OT, S>,
-    OT: ObserversTuple<I, S>,
-{
+pub trait FilterStagesTuple<E, EM, F, OT, S, Z> {
     fn perform_all(
         &mut self,
         fuzzer: &mut Z,
@@ -44,11 +58,7 @@ where
     ) -> Result<(), Error>;
 }
 
-impl<E, EM, F, I, OT, S, Z> FilterStagesTuple<E, EM, F, I, OT, S, Z> for ()
-where
-    E: HasObservers<I, OT, S>,
-    OT: ObserversTuple<I, S>,
-{
+impl<E, EM, F, OT, S, Z> FilterStagesTuple<E, EM, F, OT, S, Z> for () {
     fn perform_all(
         &mut self,
         _fuzzer: &mut Z,
@@ -62,12 +72,10 @@ where
     }
 }
 
-impl<E, EM, F, I, OT, S, Z, Head, Tail> FilterStagesTuple<E, EM, F, I, OT, S, Z> for (Head, Tail)
+impl<E, EM, F, OT, S, Z, Head, Tail> FilterStagesTuple<E, EM, F, OT, S, Z> for (Head, Tail)
 where
-    Head: FilterStage<E, EM, F, I, OT, S, Z>,
-    Tail: FilterStagesTuple<E, EM, F, I, OT, S, Z>,
-    E: HasObservers<I, OT, S>,
-    OT: ObserversTuple<I, S>,
+    Head: FilterStage<E, EM, F, OT, S, Z>,
+    Tail: FilterStagesTuple<E, EM, F, OT, S, Z>,
 {
     fn perform_all(
         &mut self,
@@ -85,17 +93,15 @@ where
     }
 }
 
-impl<C, E, EM, F, I, M, OT, R, S, Z> FilterStage<E, EM, F, I, OT, S, Z>
-    for StdMutationalStage<C, E, EM, I, M, R, S, Z>
+impl<E, EM, F, I, M, OT, S, Z> FilterStage<E, EM, F, OT, S, Z>
+    for StdMutationalStage<E, EM, I, M, S, Z>
 where
-    C: Corpus<I>,
     E: HasObservers<I, OT, S>,
     F: Filter<I, S>,
-    M: Mutator<I, S>,
     I: Input,
+    M: Mutator<I, S>,
     OT: ObserversTuple<I, S>,
-    R: Rand,
-    S: HasClientPerfMonitor + HasCorpus<C, I> + HasRand<R>,
+    S: HasClientPerfMonitor + HasCorpus<I> + HasRand,
     Z: Evaluator<E, EM, I, S>,
 {
     fn perform(
@@ -112,55 +118,51 @@ where
         let batch_size = filter.batch_size();
         let num_batch = num / batch_size;
 
-        let orig = state.corpus().get(corpus_idx)?.borrow_mut().load_input()?;
+        let seed = state
+            .corpus()
+            .get(corpus_idx)?
+            .borrow_mut()
+            .load_input()?
+            .clone();
         let mutator = self.mutator_mut();
-        // foreach batch of inputs to be feed into filter
 
-        // for window in (0..num as i32)
+        // foreach batch of inputs to be feed into filter
         for b in 0..num_batch {
-            let batch: Vec<I> = (b * batch_size..(b + 1) * batch_size)
-                .map(|i| {
-                    let mut input = orig.clone();
-                    mutator.mutate(state, &mut input, i as i32);
-                    input
-                })
-                .collect();
-            for input in filter.filter(&batch, state, corpus_idx) {
+            let stage_idxes = (b * batch_size) as i32..((b + 1) * batch_size) as i32;
+            let batch = new_batch(mutator, state, stage_idxes.clone(), &seed);
+            let filter_rst = filter.filter(&batch, state, corpus_idx);
+            for ((input, i), pass) in batch.iter().zip(stage_idxes).zip(filter_rst) {
+                if !pass {
+                    continue;
+                }
                 //TODO: (yun) execution moves the input, try another approach?
-                let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input.clone());
+                let (_, corpus_idx) =
+                    fuzzer.evaluate_input(state, executor, manager, input.clone())?;
                 // feedback samples to filter
-                filter.observe(executor.observers(), &input_clone);
-                self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                filter.observe(executor.observers(), input);
+                mutator.post_exec(state, i, corpus_idx)?;
             }
         }
 
         // last one may not be a full batch
         if num % batch_size != 0 {
-            let mut batch = Vec::with_capacity(num % batch_size);
-            for i in num_batch * batch_size..num {
-                let mut input = state
-                    .corpus()
-                    .get(corpus_idx)?
-                    .borrow_mut()
-                    .load_input()?
-                    .clone();
-                self.mutator_mut().mutate(state, &mut input, i as i32)?;
-                batch.push(input);
-            }
-            // runs ML model on the batch
-            // returns probability the inputs can pass the filter
-            let (batch, pass_prob) = filter.run(batch, state, corpus_idx);
-            // fuzz the batch
-            for (i, (input, prob)) in
-                (num - batch.len()..).zip(batch.into_iter().zip(pass_prob.into_iter()))
+            let stage_idxes = (num_batch * batch_size) as i32..num as i32;
+            let batch = new_batch(mutator, state, stage_idxes.clone(), &seed);
+
+            for ((input, i), pass) in batch
+                .iter()
+                .zip(stage_idxes)
+                .zip(filter.filter(&batch, state, corpus_idx))
             {
-                if state.rand_mut().next() as f32 <= (u64::MAX as f32) * prob {
-                    let input_clone = input.clone();
-                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, input)?;
-                    // feedback samples to filter
-                    filter.observe(executor.observers(), &input_clone);
-                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                if !pass {
+                    continue;
                 }
+                //TODO: (yun) execution moves the input, try another approach?
+                let (_, corpus_idx) =
+                    fuzzer.evaluate_input(state, executor, manager, input.clone())?;
+                // feedback samples to filter
+                filter.observe(executor.observers(), input);
+                mutator.post_exec(state, i, corpus_idx)?;
             }
         }
         Ok(())

@@ -1,10 +1,16 @@
 use super::{tf, utils, Debug, Filter};
 use libafl::{
+    bolts::rands::{Rand, StdRand},
     inputs::HasBytesVec,
     observers::{map::MapObserver, ObserversTuple},
 };
 use num_traits::{cast::cast, PrimInt};
 use std::{marker::PhantomData, vec};
+
+// TODO: Hard code parameters
+const RND_SEED: u64 = 8944; // random seed for filter
+const TRN_STEP: usize = 32; // number of epoch for training
+const WND_SIZE: usize = 1 << 13; // filter stat's window size
 
 struct CovFilterStat {
     num_in: usize,         // number of inputs fed in
@@ -12,7 +18,8 @@ struct CovFilterStat {
     num_obv: usize,        // number of real execution
     hits: Vec<f32>,        // sum of observed coverage map
     hits_normed: Vec<f32>, // standerized hits
-    sim_smpls: Vec<f32>,   // history of similarity value observed
+    smpl_wdw: Vec<f32>,    // sample window
+    rand: StdRand,
 }
 
 impl CovFilterStat {
@@ -23,12 +30,32 @@ impl CovFilterStat {
             num_obv: 0,
             hits: vec![0.0; cov_map_len],
             hits_normed: vec![0.0; cov_map_len],
-            sim_smpls: Vec::with_capacity(window_size),
+            smpl_wdw: Vec::with_capacity(window_size),
+            rand: StdRand::with_seed(RND_SEED),
         }
     }
 
-    fn update_std_hits(&mut self, _ys: &[&[f32]]) {
-        todo!("yun")
+    fn update_hits(&mut self, ys: &[&[f32]]) {
+        for y in ys {
+            for (s, t) in self.hits.iter_mut().zip(y.iter()) {
+                *s += *t;
+            }
+        }
+        let mean = self.hits.iter().sum::<f32>() / (self.hits.len() as f32);
+        let centered: Vec<_> = self.hits.iter().map(|&h| h - mean).collect();
+        let norm = centered
+            .iter()
+            .map(|&h| (h - mean) * (h - mean))
+            .sum::<f32>()
+            .sqrt();
+        for (h, ch) in self.hits_normed.iter_mut().zip(centered.iter()) {
+            *h = *ch / norm;
+        }
+    }
+
+    fn rand_sim_smpl(&mut self) -> f32 {
+        // TODO: only do sample when sample window is full
+        *self.rand.choose(&self.smpl_wdw)
     }
 }
 
@@ -63,7 +90,7 @@ where
         Self {
             name: name.to_string(),
             batch_size,
-            stat: CovFilterStat::new(model.out_dim),
+            stat: CovFilterStat::new(model.out_dim, WND_SIZE),
 
             obv_xs,
             obv_ys,
@@ -80,26 +107,6 @@ where
     O: MapObserver<T>,
     T: tf::TensorType + PrimInt + Clone + Debug,
 {
-    fn filter(&mut self, ys: &tf::Tensor<f32>) -> Vec<f32> {
-        // (num_of_sample, sample_dim)
-        let (n, m) = {
-            let shape = &ys.shape();
-            (shape[0].unwrap() as usize, shape[1].unwrap() as usize)
-        };
-
-        self.stat.num_in += n;
-
-        let prob = {
-            let similarities: Vec<_> = ys
-                .windows(m)
-                .map(|y| Self::similarity(y, &self.stat.hits_normed))
-                .collect();
-
-            similarities
-        };
-        prob
-    }
-
     /// calc similarity btw standardized coverage maps
     /// the two coverage maps must have same length
     #[inline]
@@ -122,12 +129,32 @@ where
         self.batch_size
     }
 
-    fn run(&mut self, batch: Vec<I>, _state: &mut S, _corpus_id: usize) -> (Vec<I>, Vec<f32>) {
+    fn filter(&mut self, batch: &[I], _state: &mut S, _corpus_idx: usize) -> Vec<bool> {
         let xs: Vec<&[u8]> = batch.iter().map(|x| x.bytes()).collect();
         let ys_normed = self.model.predict_normed(&xs); // `ys` is normalized
-        let prob = self.filter(&ys_normed);
-        // self.update_hits(&ys);
-        (batch, prob)
+                                                        // (num_of_sample, sample_dim)
+        let (n, m) = {
+            let shape = &ys_normed.shape();
+            (shape[0].unwrap() as usize, shape[1].unwrap() as usize)
+        };
+
+        let mut pass_num: usize = 0;
+        let result = ys_normed
+            .windows(m)
+            .map(|y| {
+                let sim = Self::similarity(y, &self.stat.hits_normed);
+                if sim < self.stat.rand_sim_smpl() {
+                    pass_num += 1;
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        self.stat.num_in += n;
+        self.stat.num_out += pass_num;
+        result
     }
 
     fn observe<OT: ObserversTuple<I, S>>(&mut self, observers: &OT, input: &I) {
@@ -145,9 +172,9 @@ where
             let xs: Vec<_> = self.obv_xs.iter().map(|x| x.as_slice()).collect();
             let ys: Vec<_> = self.obv_ys.iter().map(|y| y.as_slice()).collect();
 
-            self.stat.update_std_hits(&ys);
+            self.stat.update_hits(&ys);
 
-            self.model.train(&xs, &ys, 32); // TODO: hardcode, train for 32 steps
+            self.model.train(&xs, &ys, TRN_STEP);
             self.obv_xs.truncate(0);
             self.obv_ys.truncate(0);
         }
