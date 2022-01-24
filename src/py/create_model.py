@@ -13,6 +13,12 @@ def new_parser():
     )
 
     parser.add_argument(
+        "--map-size",
+        type=int,
+        default=65536
+    )
+
+    parser.add_argument(
         "--in-dim", "-i",
         type=int
     )
@@ -51,6 +57,8 @@ class DenseModel(K.Model):
         super().__init__()
         self.in_dim = cmd_args.in_dim
         self.out_dim = cmd_args.out_dim
+        self.map_size = cmd_args.map_size
+
         self.layer_1 = K.layers.Dense(self.in_dim // 64, activation="relu")
         self.layer_2 = K.layers.Dense(128, activation="relu")
         self.outputs_layer = K.layers.Dense(self.out_dim, activation="sigmoid")
@@ -79,13 +87,21 @@ class DenseModel(K.Model):
         self.opt.apply_gradients(zip(grads, self.trainable_variables))
         return {"loss": loss}
 
+    @tf.function
+    def train_compress(self, x, y, y_indices):
+        y = tf.gather(y, y_indices, axis=1)
+        return self.train(x, y)
+
     @property
     def signatures(self):
         x = tf.TensorSpec([None, self.in_dim], tf.uint8, name="x")
-        y = tf.TensorSpec([None, self.out_dim], tf.float32, name="y")
+        y_compressed = tf.TensorSpec([None, self.out_dim], tf.float32, name="y")
+        y = tf.TensorSpec([None, self.map_size], tf.float32, name="y")
+        y_indices = tf.TensorSpec([self.out_dim], tf.int32, name="y_indices")
         return {
             "predict": self.predict.get_concrete_function(x),
-            "train": self.train.get_concrete_function(x, y),
+            "train": self.train.get_concrete_function(x, y_compressed),
+            "train_compress": self.train_compress.get_concrete_function(x, y, y_indices)
         }
 
 

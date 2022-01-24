@@ -14,7 +14,6 @@ use libafl::{
     executors::forkserver::{ForkserverExecutor, TimeoutForkserverExecutor},
     feedback_and_fast, feedback_or,
     feedbacks::{CrashFeedback, MapFeedbackState, MaxMapFeedback, TimeFeedback},
-    fuzzer::{Fuzzer, StdFuzzer},
     inputs::BytesInput,
     monitors::SimpleMonitor,
     mutators::scheduled::{havoc_mutations, StdScheduledMutator},
@@ -22,6 +21,7 @@ use libafl::{
     stages::mutational::StdMutationalStage,
     state::{HasCorpus, StdState},
 };
+use libafl::fuzzer::{StdFuzzer};
 use std::path::PathBuf;
 
 use clap::{App, Arg};
@@ -176,6 +176,7 @@ pub fn main() {
 
     let mut filter = CovFilter::<_, HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>, _>::new(
         "shared_mem",
+        // MAP_SIZE,
         128,
     );
 

@@ -4,6 +4,7 @@ use tensorflow as tf;
 
 mod cov;
 mod utils;
+pub use cov::CovFilter;
 
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
@@ -14,7 +15,10 @@ pub trait Filter<I, S> {
     fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I);
 }
 
-pub use cov::CovFilter;
+pub enum FilterMode {
+    Preheat,
+    Ready,
+}
 
 #[cfg(test)]
 mod tests {
