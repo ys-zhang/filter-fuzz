@@ -9,15 +9,15 @@ mod utils;
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
     fn batch_size(&self) -> usize;
-   
+
     fn filter(&mut self, batch: &[I], state: &mut S, corpus_idx: usize) -> Vec<bool>;
     /// observe a new sample for the model
-    fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I, result: ExecuteInputResult);
-}
-
-pub enum FilterMode {
-    Preheat,
-    Ready,
+    fn observe<OT: ObserversTuple<I, S>>(
+        &mut self,
+        obs: &OT,
+        input: &I,
+        result: ExecuteInputResult,
+    );
 }
 
 #[cfg(test)]
@@ -53,7 +53,7 @@ mod tests {
         assert_eq!(2048, model.out_dim);
         // test predict
         let x: Vec<u8> = vec![0 as u8, 0 as u8, 0 as u8];
-        let (y_hat, _) = model.predict(&[&x]);
+        let (y_hat, _) = unsafe{ model.predict(&[&x]) };
         assert_eq!(
             y_hat.shape(),
             tf::Shape::new(Some(vec![Some(1), Some(model.out_dim as i64)]))

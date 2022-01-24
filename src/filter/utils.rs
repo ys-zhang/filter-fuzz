@@ -81,18 +81,26 @@ impl Model {
         }
     }
 
-    // create a new tensor and copy the inputs to the tensor
-    pub fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
+    /// create a new tensor and copy the inputs to the tensor
+    /// the result is a tensor of shape `[xs.len(), dim]`
+    /// Elements of `xs` should be less or equal to `dim`, if it is less
+    /// than dim, trailing zeros are added in the result tensor 
+    /// 
+    /// oversized elems are replaced with zero vectors 
+    pub unsafe fn new_tensor_from<T: tf::TensorType>(xs: &[&[T]], dim: usize) -> tf::Tensor<T> {
         let n = xs.len(); // number of samples/inputs
+        // tensor elems are initialized to zero
         let mut tensor = tf::Tensor::<T>::new(&[n as u64, dim as u64]);
         let mut ts_ptr = tensor.as_mut_ptr();
         // copy xs to tensor
-        unsafe {
-            for x in xs {
+        for x in xs {
+            // oversized slices are replaced with zero vectors
+            if x.len() <= dim {
                 ptr::copy_nonoverlapping(x.as_ptr(), ts_ptr, x.len());
-                ts_ptr = ts_ptr.add(dim);
             }
+            ts_ptr = ts_ptr.add(dim);
         }
+        
         tensor
     }
 
@@ -105,9 +113,10 @@ impl Model {
         self.bundle.meta_graph_def().get_signature(name).unwrap()
     }
 
+    /// elems of `xs` should have len <= model.in_dim
     #[allow(unused)]
     #[inline]
-    pub fn predict(&self, xs: &[&[u8]]) -> (Tensor<f32>, Tensor<f32>) {
+    pub unsafe fn predict(&self, xs: &[&[u8]]) -> (Tensor<f32>, Tensor<f32>) {
         let xs = Self::new_tensor_from(xs, self.in_dim);
         let sig = self.get_signature("predict");
 
@@ -148,19 +157,22 @@ impl Model {
         (y_hat, y_hat_normed)
     }
 
+    /// elems of `xs` should have len <= model.in_dim
     #[allow(unused)]
     #[inline]
-    pub fn predict_unnormed(&self, xs: &[&[u8]]) -> Tensor<f32> {
+    pub unsafe fn predict_unnormed(&self, xs: &[&[u8]]) -> Tensor<f32> {
         self.predict_and_fetch(xs, "y_hat")
     }
 
+    /// elems of `xs` should have len <= model.in_dim
     #[allow(unused)]
     #[inline]
-    pub fn predict_normed(&self, xs: &[&[u8]]) -> Tensor<f32> {
+    pub unsafe fn predict_normed(&self, xs: &[&[u8]]) -> Tensor<f32> {
         self.predict_and_fetch(xs, "y_hat_normed")
     }
 
-    pub fn predict_and_fetch(&self, xs: &[&[u8]], output_name: &str) -> Tensor<f32> {
+    /// elems of `xs` should have len <= model.in_dim
+    pub unsafe fn predict_and_fetch(&self, xs: &[&[u8]], output_name: &str) -> Tensor<f32> {
         let xs = Self::new_tensor_from(xs, self.in_dim);
         let sig = self.get_signature("predict");
         let x = {
@@ -186,7 +198,9 @@ impl Model {
         step.fetch(y_hat_tok).unwrap()
     }
 
-    pub fn train(&self, xs: &[&[u8]], ys: &[&[f32]], nstep: usize) {
+    /// elems of `xs` should have len <= model.in_dim
+    /// elems of `ys` should have len <= model.out_dim
+    pub unsafe fn train(&self, xs: &[&[u8]], ys: &[&[f32]], n_epoch: usize) {
         let xs = Self::new_tensor_from(xs, self.in_dim);
         let ys = Self::new_tensor_from(ys, self.out_dim);
 
@@ -213,7 +227,7 @@ impl Model {
         step.add_target(&op_loss);
 
         let session = &self.bundle.session;
-        for _ in 0..nstep {
+        for _ in 0..n_epoch {
             session.run(&mut step).unwrap();
         }
     }
