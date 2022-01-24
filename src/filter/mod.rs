@@ -1,10 +1,10 @@
 use libafl::observers::ObserversTuple;
+use libafl::ExecuteInputResult;
 use std::fmt::Debug;
 use tensorflow as tf;
 
-mod cov;
+pub mod cov;
 mod utils;
-pub use cov::CovFilter;
 
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
@@ -12,7 +12,7 @@ pub trait Filter<I, S> {
    
     fn filter(&mut self, batch: &[I], state: &mut S, corpus_idx: usize) -> Vec<bool>;
     /// observe a new sample for the model
-    fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I);
+    fn observe<OT: ObserversTuple<I, S>>(&mut self, obs: &OT, input: &I, result: ExecuteInputResult);
 }
 
 pub enum FilterMode {

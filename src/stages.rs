@@ -136,11 +136,13 @@ where
                     continue;
                 }
                 //TODO: (yun) execution moves the input, try another approach?
-                let (_, corpus_idx) =
-                    fuzzer.evaluate_input(state, executor, manager, input.clone())?;
-                // feedback samples to filter
-                filter.observe(executor.observers(), input);
-                mutator.post_exec(state, i, corpus_idx)?;
+                if let Ok((result, corpus_idx)) =
+                    fuzzer.evaluate_input(state, executor, manager, input.clone())
+                {
+                    // feedback samples to filter
+                    filter.observe(executor.observers(), input, result);
+                    mutator.post_exec(state, i, corpus_idx)?;
+                }
             }
         }
 
@@ -158,11 +160,13 @@ where
                     continue;
                 }
                 //TODO: (yun) execution moves the input, try another approach?
-                let (_, corpus_idx) =
-                    fuzzer.evaluate_input(state, executor, manager, input.clone())?;
-                // feedback samples to filter
-                filter.observe(executor.observers(), input);
-                mutator.post_exec(state, i, corpus_idx)?;
+                if let Ok((result, corpus_idx)) =
+                    fuzzer.evaluate_input(state, executor, manager, input.clone())
+                {
+                    // feedback samples to filter
+                    filter.observe(executor.observers(), input, result);
+                    mutator.post_exec(state, i, corpus_idx)?;
+                }
             }
         }
         Ok(())
