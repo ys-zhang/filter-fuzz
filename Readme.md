@@ -5,7 +5,7 @@
     1. [rust tf example load (rust)](https://github.com/tensorflow/rust/blob/master/examples/regression_savedmodel.rs) and [rust tf example save (python)](https://github.com/tensorflow/rust/blob/master/examples/regression_savedmodel/regression_savedmodel.py)
     2. [Using the saved model format](https://www.tensorflow.org/guide/saved_model)
 - [ ] migrate old python model
-  - [ ] filter
+  - [x] filter
   - [ ] train
   - [ ] test whether to run train on a batch of train samples
   - [x] deal with oversized inputs

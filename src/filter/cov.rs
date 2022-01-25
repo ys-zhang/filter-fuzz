@@ -37,10 +37,6 @@ impl CovFilterStats {
             model_out_dim,
         }
     }
-
-    fn update_in(&mut self, _input: &[u8]) {
-        todo!()
-    }
 }
 
 pub trait Preprocessor<T: PrimInt> {
@@ -54,6 +50,7 @@ pub trait Preprocessor<T: PrimInt> {
 pub struct Compressor<T: PrimInt> {
     /// indices of edges that have been hit
     hit_indices: Vec<usize>,
+
     phantom: PhantomData<T>,
 }
 
@@ -92,8 +89,8 @@ impl<T: PrimInt> Preprocessor<T> for Compressor<T> {
     /// when `hit_indices` is full, no update will perform
     #[inline]
     fn update_y(&mut self, map: &[T]) {
-        // this function is seldom called (only when map is considered
-        //   interesting by the fuzzer)
+        // this function is seldom called (only in Preheat mode
+        //    or when map is considered interesting by the fuzzer)
         if self.is_full() {
             return;
         }
@@ -311,29 +308,25 @@ where
     }
 
     fn filter(&mut self, batch: &[I], _state: &mut S, _corpus_idx: usize) -> Vec<bool> {
-        let n = batch.len();
-        let m = self.stats.model_out_dim;
-
         let mut pass_num: usize = 0;
 
         let result = match self.mode {
             // in the preheat mode, fuzz all inputs
             FilterMode::Preheat(_) => {
-                pass_num = n;
+                pass_num = batch.len();
                 vec![true; pass_num]
             }
 
             FilterMode::Ready(_) => {
-                let model_in_dim = self.stats.model_in_dim;
                 let xs: Vec<&[u8]> = batch.iter().map(|x| x.bytes()).collect();
                 let ys_normed = unsafe { self.model.predict_normed(&xs) };
-                
+
                 ys_normed
-                    .windows(m)
+                    .windows(self.stats.model_out_dim)
                     .zip(xs)
                     .map(|(y, x)| {
                         // oversized inputs are always fuzzed
-                        if x.len() > model_in_dim || !self.judge.judge(y) {
+                        if x.len() > self.stats.model_in_dim || !self.judge.judge(y) {
                             pass_num += 1;
                             true
                         } else {
@@ -344,7 +337,7 @@ where
             }
         };
 
-        self.stats.num_in += n;
+        self.stats.num_in += batch.len();
         self.stats.num_out += pass_num;
         result
     }
@@ -355,23 +348,29 @@ where
         input: &I,
         result: ExecuteInputResult,
     ) {
+        // oversized input
+        if input.bytes().len() > self.stats.model_in_dim {
+            self.stats.num_ov_in += 1;
+            return;
+        }
         let observer = observers.match_name::<O>(&self.name).unwrap();
         let full_map = observer.map().unwrap();
+        // compress coverage map by removing unobserved edges
+        let map = self.preprocessor.process_y(full_map);
 
         // observe the sample
         self.stats.num_obv += 1;
         match self.mode {
             FilterMode::Preheat(ref mut train_samples) => {
                 self.preprocessor.update_y(full_map);
-                let map = self.preprocessor.process_y(full_map);
-
                 train_samples.push(input.bytes().to_vec(), map);
-
                 // try train the model
                 if train_samples.is_full() {
                     let xs: Vec<_> = train_samples.xs.iter().map(|x| x.as_slice()).collect();
                     let ys: Vec<_> = train_samples.ys.iter().map(|y| y.as_slice()).collect();
-                    self.model.train(&xs, &ys, TRN_EPOCH);
+                    unsafe {
+                        self.model.train(&xs, &ys, TRN_EPOCH);
+                    }
                     self.mode = FilterMode::Ready(Samples::new(self.batch_size));
                 }
             }
@@ -381,16 +380,14 @@ where
                 if result != ExecuteInputResult::None {
                     self.preprocessor.update_y(full_map);
                 }
-                let map = self.preprocessor.process_y(full_map);
-
                 train_samples.push(input.bytes().to_vec(), map);
-
                 // try train the model
                 if train_samples.is_full() {
                     let xs: Vec<_> = train_samples.xs.iter().map(|x| x.as_slice()).collect();
                     let ys: Vec<_> = train_samples.ys.iter().map(|y| y.as_slice()).collect();
-
-                    self.model.train(&xs, &ys, TRN_EPOCH);
+                    unsafe {
+                        self.model.train(&xs, &ys, TRN_EPOCH);
+                    }
                     train_samples.truncate();
 
                     if self.is_model_stale() {
