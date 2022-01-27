@@ -13,7 +13,7 @@ use libafl::{
 use std::iter::Iterator;
 
 #[inline]
-fn new_batch<I, M, S>(
+fn new_input_batch<I, M, S>(
     mutator: &mut M,
     state: &mut S,
     stage_idxes: impl Iterator<Item = i32>,
@@ -129,7 +129,7 @@ where
         // foreach batch of inputs to be feed into filter
         for b in 0..num_batch {
             let stage_idxes = (b * batch_size) as i32..((b + 1) * batch_size) as i32;
-            let batch = new_batch(mutator, state, stage_idxes.clone(), &seed);
+            let batch = new_input_batch(mutator, state, stage_idxes.clone(), &seed);
             let filter_rst = filter.filter(&batch, state, corpus_idx);
             for ((input, i), pass) in batch.iter().zip(stage_idxes).zip(filter_rst) {
                 if !pass {
@@ -149,7 +149,7 @@ where
         // last one may not be a full batch
         if num % batch_size != 0 {
             let stage_idxes = (num_batch * batch_size) as i32..num as i32;
-            let batch = new_batch(mutator, state, stage_idxes.clone(), &seed);
+            let batch = new_input_batch(mutator, state, stage_idxes.clone(), &seed);
 
             for ((input, i), pass) in batch
                 .iter()

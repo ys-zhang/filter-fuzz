@@ -13,7 +13,8 @@ path = "examples/forkserver_simple/src/main.rs"
 
 [dependencies]
 libafl = "= 0.7.1"
-tensorflow = "0.17.0"
+tch = "0.6.1"
+ndarray = "*"
 num-traits = "*"
-# nalgebra = "*"
 clap = { version = "3.0.0-rc.4", features = ["default"] }
+scopeguard = "*"
