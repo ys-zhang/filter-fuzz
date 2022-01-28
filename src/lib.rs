@@ -16,14 +16,14 @@ use crate::filter::Filter;
 use crate::stages::*;
 use std::time::Duration;
 
-/// Trait mimics libafl::fuzzer::Fuzzer;
+/// Trait mimics `libafl::fuzzer::Fuzzer`;
 pub trait FilterFuzzer<E, EM, F, I, S, ST>
 where
     I: Input,
     EM: ProgressReporter<I>,
     S: HasExecutions + HasClientPerfMonitor,
 {
-    /// same parameter with libafl
+    /// same parameter with `libafl`
     const STATS_TIMEOUT_DEFAULT: Duration = Duration::from_millis(3 * 1000);
 
     fn filter_fuzz_one(

@@ -5,8 +5,6 @@ use libafl::{
     observers::{map::MapObserver, ObserversTuple},
     ExecuteInputResult,
 };
-use num_traits::PrimInt;
-use scopeguard::defer;
 use std::{marker::PhantomData, vec};
 use tch::{nn::Module, Device, IndexOp, Kind, Tensor, TensorIndexer};
 
@@ -22,8 +20,8 @@ struct CovFilterStats {
     num_in: usize,     // number of inputs fed in
     num_out: usize,    // number of inputs that gets out of the filter
     num_obv: usize,    // number of real execution
-    num_ov_in: usize,  // number of oversized input
-    num_ov_out: usize, // number of oversized output
+    num_ov_in: usize,  // number of oversize input
+    num_ov_out: usize, // number of oversize output
     md_in_dim: usize,  // input dim of nn module
     md_out_dim: usize, // output dim of nn module
 }
@@ -49,29 +47,31 @@ pub trait Preprocessor {
     unsafe fn update(&mut self, maps: &Tensor);
     /// update a single
     fn update_raw(&mut self, map: &[u8]) {
-        let ts = Tensor::of_blob(
-            map.as_ptr(),
-            &[map.len() as i64],
-            &[1],
-            Kind::Uint8,
-            Device::Cpu,
-        )
-        .view((1, map.len() as i64));
         unsafe {
+            let ts = Tensor::of_blob(
+                map.as_ptr(),
+                &[map.len() as i64],
+                &[1],
+                Kind::Uint8,
+                Device::Cpu,
+            )
+            .view((1, map.len() as i64));
             self.update(&ts);
-        } 
+        }
     }
 
     fn proc_raw(&self, map: &[u8]) -> Tensor {
         let map_f: Vec<f32> = map.iter().map(|&e| e as f32).collect();
-        let ts = Tensor::of_blob(
-            map.as_ptr() as *const u8,
-            &[map.len() as i64],
-            &[1],
-            Kind::Float,
-            Device::Cpu,
-        )
-        .view((1, map.len() as i64));
+        let ts = unsafe {
+            Tensor::of_blob(
+                map_f.as_ptr() as *const u8,
+                &[map.len() as i64],
+                &[1],
+                Kind::Float,
+                Device::Cpu,
+            )
+            .view((1, map.len() as i64))
+        };
         self.proc(ts)
     }
 }
@@ -143,11 +143,11 @@ impl Preprocessor for EdgeTracker {
     #[inline]
     fn proc(&self, map: Tensor) -> Tensor {
         // TODO: will it be faster to first make map a column major matrix?
-        let seletor = self.indexer();
+        let selector = self.indexer();
         // remove edges that has not been visited yet
         let extracted = match map.dim() {
-            1 => map.i(seletor),
-            2 => map.i((.., seletor)),
+            1 => map.i(selector),
+            2 => map.i((.., selector)),
             _ => panic!("can only process 1 or 2 dim tensors"),
         };
         // pad left with zeros
@@ -203,8 +203,8 @@ impl CosSim {
         let ts = Tensor::zeros(&[dim as i64], (Kind::Float, Device::Cpu));
         Self {
             rand: StdRand::with_seed(RND_SEED),
-            baseline: ts,
             raw_baseline: ts.copy(),
+            baseline: ts,
             samples: vec![f32::INFINITY; window_size],
             i_smpl: 0,
         }
@@ -216,7 +216,7 @@ impl CosSim {
 
     /// randomly choose n similarity samples from history
     pub fn sample_n(&mut self, n: usize) -> Vec<f32> {
-        (0..n).map(|i| *self.rand.choose(&self.samples)).collect()
+        (0..n).map(|_| *self.rand.choose(&self.samples)).collect()
     }
 }
 
@@ -244,7 +244,46 @@ impl Judge for CosSim {
     }
 }
 
-type TrainBatch = (Tensor, Tensor);
+pub struct TrainBatch {
+    xs: Tensor,
+    ys: Tensor,
+    len: i64,
+    size: i64,
+}
+
+impl TrainBatch {
+    /// create tensors on CPU to hold samples for training nn
+    pub fn new(batch_size: usize, in_dim: usize, out_dim: usize) -> Self {
+        Self {
+            len: 0,
+            size: batch_size as i64,
+            xs: Tensor::zeros(
+                &[batch_size as i64, in_dim as i64],
+                (Kind::Float, Device::Cpu),
+            ),
+            ys: Tensor::zeros(
+                &[batch_size as i64, out_dim as i64],
+                (Kind::Float, Device::Cpu),
+            ),
+        }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.len == self.size
+    }
+
+    pub fn add(&mut self, x: &Tensor, y: &Tensor) {
+        if !self.is_full() {
+            self.xs.i((self.len, ..)).copy_(x);
+            self.ys.i((self.len, ..)).copy_(y);
+            self.len += 1;
+        }
+    }
+
+    pub fn truncate(&mut self) {
+        self.len = 0;
+    }
+}
 
 pub enum FilterMode {
     Preheat(Vec<TrainBatch>),
@@ -252,10 +291,9 @@ pub enum FilterMode {
 }
 
 #[allow(unused)]
-pub struct CovFilter<I, O, T>
+pub struct CovFilter<I, O>
 where
-    O: MapObserver<T>,
-    T: PrimInt + Default + Copy + Debug,
+    O: MapObserver<u8>,
 {
     /// name used get the MapObserver from ObserversTuple
     name: String,
@@ -263,22 +301,21 @@ where
     stats: CovFilterStats,
     /// preprocess coverage map before training on nn module
     preprocessor: Box<dyn Preprocessor>,
-    /// judge whether a prediction is "insteresting"
+    /// judge whether a prediction is "interesting"
     judge: Box<dyn Judge>,
     /// the nn module
     model: Box<dyn Module>,
-    phantom: PhantomData<(I, O, T)>,
+    phantom: PhantomData<(I, O)>,
 }
 
-impl<I, O, T> CovFilter<I, O, T>
+impl<I, O> CovFilter<I, O>
 where
     I: HasBytesVec,
-    O: MapObserver<T>,
-    T: PrimInt + Default + Copy + Debug,
+    O: MapObserver<u8>,
 {
     pub fn new(
         name: &str,
-        model: Box<dyn Module>,
+        model: impl Module,
         in_dim: usize,
         out_dim: usize,
         batch_size: usize,
@@ -306,11 +343,10 @@ where
     }
 }
 
-impl<I, O, S, T> Filter<I, S> for CovFilter<I, O, T>
+impl<I, O, S> Filter<I, S> for CovFilter<I, O>
 where
     I: HasBytesVec,
-    O: MapObserver<T>,
-    T: PrimInt + Default + Copy + Debug,
+    O: MapObserver<u8>,
 {
     #[inline]
     fn batch_size(&self) -> usize {
@@ -320,15 +356,7 @@ where
     fn filter(&mut self, batch: &[I], _state: &mut S, _corpus_idx: usize) -> Vec<bool> {
         let mut pass_counter: usize = 0;
 
-        defer! {
-            self.stats.num_in += batch.len();
-            self.stats.num_out += pass_counter;
-        }
-
-        // filter mode do not calc gradiant
-        let guard = tch::no_grad_guard();
-
-        match self.mode {
+        let rst = match self.mode {
             // in preheat mode, fuzz all inputs
             FilterMode::Preheat(_) => {
                 pass_counter = batch.len();
@@ -336,6 +364,7 @@ where
             }
 
             FilterMode::Ready(_) => {
+                let _guard = tch::no_grad_guard(); // no backtracking in this scope
                 let xs = unsafe {
                     // TODO: oversize inputs are truncated, it seems better
                     //       to just let them pass
@@ -349,7 +378,13 @@ where
                     .for_each(|_| pass_counter += 1);
                 rst
             }
-        }
+        };
+
+        // update stats
+        self.stats.num_in += batch.len();
+        self.stats.num_out += pass_counter;
+
+        rst
     }
 
     fn observe<OT: ObserversTuple<I, S>>(
@@ -365,11 +400,8 @@ where
         }
         let observer = observers.match_name::<O>(&self.name).unwrap();
         let full_map = observer.map().unwrap();
-        if result != ExecuteInputResult::None {
-            self.preprocessor.update_raw(full_map);
-        }
+
         // compress coverage map by removing unobserved edges
-        let map = self.preprocessor.proc(full_map);
 
         // observe the sample
         self.stats.num_obv += 1;
@@ -388,13 +420,16 @@ where
                 //     self.mode = FilterMode::Ready(Samples::new(self.batch_size));
                 // }
             }
+            // nn module is already trained
             FilterMode::Ready(ref mut train_samples) => {
+                if result != ExecuteInputResult::None {
+                    // fuzzer find a new type of coverage, update the preprocessor
+                    self.preprocessor.update_raw(full_map);
+                }
+                let map = self.preprocessor.proc_raw(full_map);
+
                 todo!("train in mode ready")
-                // // when the current input is interesting, i.e., a new branch is
-                // // discovered, try update the edge hit info
-                // if result != ExecuteInputResult::None {
-                //     self.preprocessor.update_y(full_map);
-                // }
+
                 // train_samples.push(input.bytes().to_vec(), map);
                 // // try train the model
                 // if train_samples.is_full() {

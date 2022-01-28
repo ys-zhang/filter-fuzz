@@ -7,7 +7,7 @@ use tch::{Device, IndexOp, Kind, Tensor};
 ///     1. oversize inputs will be truncated
 ///     2. short inputs will be pad with 0
 pub unsafe fn input_batch_to_tensor(batch: &[impl HasBytesVec], in_dim: usize) -> Tensor {
-    let mut ts = tch::Tensor::zeros(
+    let ts = tch::Tensor::zeros(
         &[batch.len() as i64, in_dim as i64],
         (Kind::Uint8, Device::Cpu),
     );
