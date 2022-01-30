@@ -6,13 +6,17 @@ use libafl::{
     ExecuteInputResult,
 };
 use std::{marker::PhantomData, vec};
-use tch::{nn::Module, Device, IndexOp, Kind, Tensor, TensorIndexer};
+use tch::{nn::OptimizerConfig, Device, Kind, Tensor};
+use utils::{
+    data::{input_batch_to_tensor, SampleBuffer},
+    model, ops,
+};
 
 // TODO: Hard code parameters
 const RND_SEED: u64 = 8944; // random seed for filter
 const TRN_EPOCH: usize = 4; // number of epoch for training
 const WND_FACTOR: usize = 1 << 4; // filter stat's window size
-const PRH_FACTOR: usize = 10; // number of batches for preheat mode train
+const PRH_BATCH_NUM: usize = 10; // number of batches for preheat mode train
 
 #[derive(Debug)]
 struct CovFilterStats {
@@ -42,48 +46,22 @@ impl CovFilterStats {
 }
 
 pub trait Preprocessor {
-    fn proc(&self, map: Tensor) -> Tensor;
-    /// tensor `map`'s kind must be 2-D integer type
-    unsafe fn update(&mut self, maps: &Tensor);
-    /// update a single
-    fn update_raw(&mut self, map: &[u8]) {
-        unsafe {
-            let ts = Tensor::of_blob(
-                map.as_ptr(),
-                &[map.len() as i64],
-                &[1],
-                Kind::Uint8,
-                Device::Cpu,
-            )
-            .view((1, map.len() as i64));
-            self.update(&ts);
-        }
-    }
+    /// notice that all implementation shall copy the data
+    fn proc(&self, map: &[u8]) -> Vec<u8>;
 
-    fn proc_raw(&self, map: &[u8]) -> Tensor {
-        let map_f: Vec<f32> = map.iter().map(|&e| e as f32).collect();
-        let ts = unsafe {
-            Tensor::of_blob(
-                map_f.as_ptr() as *const u8,
-                &[map.len() as i64],
-                &[1],
-                Kind::Float,
-                Device::Cpu,
-            )
-            .view((1, map.len() as i64))
-        };
-        self.proc(ts)
-    }
+    /// update use a single coverage map
+    fn update(&mut self, map: &[u8]) -> bool;
 }
 
 /// a dummy preprocessor
 impl Preprocessor for () {
     #[inline]
-    fn proc(&self, map: Tensor) -> Tensor {
-        map
+    fn proc(&self, map: &[u8]) -> Vec<u8> {
+        map.into()
     }
-    unsafe fn update(&mut self, _map: &Tensor) {}
-    fn update_raw(&mut self, _map: &[u8]) {}
+    fn update(&mut self, _map: &[u8]) -> bool {
+        true
+    }
 }
 
 /// tracking statistics of how edges are hit and
@@ -96,7 +74,7 @@ pub struct EdgeTracker {
     // indices of edges that have been hit
     // i64 is equiv to torch CPULongType
     // for indexing tensors
-    indices: Vec<i64>,
+    indices: Vec<usize>,
 }
 
 impl EdgeTracker {
@@ -109,27 +87,6 @@ impl EdgeTracker {
     pub fn is_full(&self) -> bool {
         self.indices.len() == self.indices.capacity()
     }
-
-    fn indexer(&self) -> TensorIndexer {
-        unsafe {
-            TensorIndexer::IndexSelect(Tensor::of_blob(
-                self.indices.as_ptr() as *const u8,
-                &[self.indices.len() as i64],
-                &[1],
-                Kind::Int64,
-                Device::Cpu,
-            ))
-        }
-    }
-
-    fn pad(&self, ts: Tensor) -> Tensor {
-        if self.is_full() {
-            ts
-        } else {
-            let left = self.indices.capacity() - self.indices.len();
-            ts.zero_pad1d(0, left as i64)
-        }
-    }
 }
 
 /// EdgeTracker keep track of the edges in coverage map that
@@ -138,37 +95,28 @@ impl EdgeTracker {
 impl Preprocessor for EdgeTracker {
     /// notice that the dim of the output may be less than
     /// tensorflow model's output_dim.
-    ///
-    /// Trailing zeros are added when transform vector to tensor
+    /// this can be super slow if map do not use a vector as backend
     #[inline]
-    fn proc(&self, map: Tensor) -> Tensor {
-        // TODO: will it be faster to first make map a column major matrix?
-        let selector = self.indexer();
-        // remove edges that has not been visited yet
-        let extracted = match map.dim() {
-            1 => map.i(selector),
-            2 => map.i((.., selector)),
-            _ => panic!("can only process 1 or 2 dim tensors"),
-        };
-        // pad left with zeros
-        self.pad(extracted)
+    fn proc(&self, map: &[u8]) -> Vec<u8> {
+        self.indices.iter().map(|&i| map[i]).collect()
     }
 
     /// when `self.hit_indices` is full, neglects the update
     /// `map` must be an integer tensor
     #[inline]
-    unsafe fn update(&mut self, map: &Tensor) {
-        // this function is seldom called (only in Preheat mode
-        //    or when map is considered interesting by the fuzzer)
+    fn update(&mut self, map: &[u8]) -> bool {
+        // this function is seldom called,
+        // only when map is considered interesting by the fuzzer
         if self.is_full() {
-            return;
+            false
+        } else {
+            map.iter().enumerate().for_each(|(i, &h)| {
+                if h > 0 && !self.is_full() && !self.indices.contains(&i) {
+                    self.indices.push(i);
+                }
+            });
+            true
         }
-        let hit: Vec<bool> = map.any_dim(0, false).into();
-        (0 as i64..).zip(hit).for_each(|(i, h)| {
-            if h && !self.is_full() && !self.indices.contains(&i) {
-                self.indices.push(i);
-            }
-        });
     }
 }
 
@@ -211,7 +159,7 @@ impl CosSim {
     }
 
     pub fn similarity(&self, ys: &Tensor) -> Tensor {
-        utils::ops::standardize(ys).dot(&self.baseline)
+        unsafe { ops::standardize(ys).dot(&self.baseline) }
     }
 
     /// randomly choose n similarity samples from history
@@ -234,7 +182,7 @@ impl Judge for CosSim {
     /// update the judge
     fn update(&mut self, ys: &Tensor) {
         self.raw_baseline += ys.sum_dim_intlist(&[0], false, Kind::Float);
-        self.baseline = utils::ops::standardize(&self.raw_baseline);
+        self.baseline = unsafe { ops::standardize(&self.raw_baseline) };
         // update sample window
         let sim: Vec<f32> = self.similarity(ys).into();
         sim.iter().for_each(|&s| {
@@ -244,56 +192,16 @@ impl Judge for CosSim {
     }
 }
 
-pub struct TrainBatch {
-    xs: Tensor,
-    ys: Tensor,
-    len: i64,
-    size: i64,
-}
-
-impl TrainBatch {
-    /// create tensors on CPU to hold samples for training nn
-    pub fn new(batch_size: usize, in_dim: usize, out_dim: usize) -> Self {
-        Self {
-            len: 0,
-            size: batch_size as i64,
-            xs: Tensor::zeros(
-                &[batch_size as i64, in_dim as i64],
-                (Kind::Float, Device::Cpu),
-            ),
-            ys: Tensor::zeros(
-                &[batch_size as i64, out_dim as i64],
-                (Kind::Float, Device::Cpu),
-            ),
-        }
-    }
-
-    pub fn is_full(&self) -> bool {
-        self.len == self.size
-    }
-
-    pub fn add(&mut self, x: &Tensor, y: &Tensor) {
-        if !self.is_full() {
-            self.xs.i((self.len, ..)).copy_(x);
-            self.ys.i((self.len, ..)).copy_(y);
-            self.len += 1;
-        }
-    }
-
-    pub fn truncate(&mut self) {
-        self.len = 0;
-    }
-}
-
 pub enum FilterMode {
-    Preheat(Vec<TrainBatch>),
-    Ready(TrainBatch),
+    Preheat(SampleBuffer),
+    Ready(SampleBuffer),
 }
 
 #[allow(unused)]
-pub struct CovFilter<I, O>
+pub struct CovFilter<I, M, O>
 where
     O: MapObserver<u8>,
+    M: tch::nn::Module,
 {
     /// name used get the MapObserver from ObserversTuple
     name: String,
@@ -304,32 +212,43 @@ where
     /// judge whether a prediction is "interesting"
     judge: Box<dyn Judge>,
     /// the nn module
-    model: Box<dyn Module>,
+    model: M,
+    /// curent trained model params
+    model_param: tch::nn::VarStore,
+    /// curent optimizer for model training
+    model_opt: tch::nn::Optimizer,
     phantom: PhantomData<(I, O)>,
 }
 
-impl<I, O> CovFilter<I, O>
+impl<I, M, O> CovFilter<I, M, O>
 where
     I: HasBytesVec,
+    M: tch::nn::Module,
     O: MapObserver<u8>,
 {
-    pub fn new(
-        name: &str,
-        model: impl Module,
-        in_dim: usize,
-        out_dim: usize,
-        batch_size: usize,
-    ) -> Self {
+    pub fn new(name: &str, model: M, in_dim: usize, out_dim: usize, batch_size: usize) -> Self {
         let stats = CovFilterStats::new(batch_size, in_dim, out_dim);
         let preprocessor = EdgeTracker::new(out_dim);
         let judge = CosSim::new(out_dim, WND_FACTOR * batch_size);
+        let init_mode = FilterMode::Preheat(SampleBuffer::new(
+            PRH_BATCH_NUM * batch_size,
+            in_dim,
+            out_dim,
+        ));
+        let model_param = tch::nn::VarStore::new(Device::Cpu);
+        let model_opt = tch::nn::Adam::default()
+            .build(&model_param, 0.0001)
+            .expect("fail to build optimizer");
+
         Self {
             name: name.to_string(),
-            mode: FilterMode::Preheat(Vec::with_capacity(PRH_FACTOR)),
+            mode: init_mode,
             stats,
             preprocessor: Box::new(preprocessor),
             judge: Box::new(judge),
             model,
+            model_param,
+            model_opt,
             phantom: PhantomData,
         }
     }
@@ -343,9 +262,10 @@ where
     }
 }
 
-impl<I, O, S> Filter<I, S> for CovFilter<I, O>
+impl<I, M, O, S> Filter<I, S> for CovFilter<I, M, O>
 where
     I: HasBytesVec,
+    M: tch::nn::Module,
     O: MapObserver<u8>,
 {
     #[inline]
@@ -365,13 +285,13 @@ where
 
             FilterMode::Ready(_) => {
                 let _guard = tch::no_grad_guard(); // no backtracking in this scope
-                let xs = unsafe {
+                let xs /* u8-cpu */ = unsafe {
                     // TODO: oversize inputs are truncated, it seems better
                     //       to just let them pass
-                    utils::input_batch_to_tensor(batch, self.stats.md_in_dim)
+                    input_batch_to_tensor(batch, self.stats.md_in_dim)
                 };
                 // TODO: should ys be normalized?
-                let ys = self.model.forward(&xs);
+                let ys /* f32-cpu */ = self.model.forward(&xs);
                 let rst = self.judge.interesting(&ys);
                 rst.iter()
                     .filter(|&&pass| pass)
@@ -393,58 +313,70 @@ where
         input: &I,
         result: ExecuteInputResult,
     ) {
+        // observe the sample
+        self.stats.num_obv += 1;
         // oversize input
         if input.bytes().len() > self.stats.md_in_dim {
             self.stats.num_ov_in += 1;
             return;
         }
         let observer = observers.match_name::<O>(&self.name).unwrap();
-        let full_map = observer.map().unwrap();
-
-        // compress coverage map by removing unobserved edges
-
-        // observe the sample
-        self.stats.num_obv += 1;
-        match self.mode {
-            FilterMode::Preheat(ref mut train_samples) => {
-                todo!("train in mode preheat ")
-                // self.preprocessor.update_y(full_map);
-                // train_samples.push(input.bytes().to_vec(), map);
-                // // try train the model
-                // if train_samples.is_full() {
-                //     let xs: Vec<_> = train_samples.xs.iter().map(|x| x.as_slice()).collect();
-                //     let ys: Vec<_> = train_samples.ys.iter().map(|y| y.as_slice()).collect();
-                //     unsafe {
-                //         self.model.train(&xs, &ys, TRN_EPOCH);
-                //     }
-                //     self.mode = FilterMode::Ready(Samples::new(self.batch_size));
-                // }
+        let map = {
+            let full_buf = observer.map().unwrap();
+            if result != ExecuteInputResult::None {
+                // fuzzer find a new coverage, update the preprocessor
+                // for new hit edges
+                self.preprocessor.update(full_buf);
             }
-            // nn module is already trained
-            FilterMode::Ready(ref mut train_samples) => {
-                if result != ExecuteInputResult::None {
-                    // fuzzer find a new type of coverage, update the preprocessor
-                    self.preprocessor.update_raw(full_map);
+            // Preprocessor.proc copies the data
+            self.preprocessor.proc(full_buf)
+        };
+
+        let buffer = match &mut self.mode {
+            FilterMode::Preheat(ref mut buffer) => buffer,
+            FilterMode::Ready(ref mut buffer) => buffer,
+        };
+
+        buffer.push(input.bytes(), &map);
+        if buffer.is_full() {
+            let data = unsafe { buffer.iter2(self.stats.batch_size) };
+            model::train(
+                &mut self.model,
+                &mut self.model_opt,
+                data,
+                TRN_EPOCH,
+            );
+
+            match &mut self.mode {
+                FilterMode::Preheat(_) => {
+                    self.mode = FilterMode::Ready(SampleBuffer::new(
+                        self.stats.batch_size,
+                        self.stats.md_in_dim,
+                        self.stats.md_out_dim,
+                    ))
                 }
-                let map = self.preprocessor.proc_raw(full_map);
-
-                todo!("train in mode ready")
-
-                // train_samples.push(input.bytes().to_vec(), map);
-                // // try train the model
-                // if train_samples.is_full() {
-                //     let xs: Vec<_> = train_samples.xs.iter().map(|x| x.as_slice()).collect();
-                //     let ys: Vec<_> = train_samples.ys.iter().map(|y| y.as_slice()).collect();
-                //     unsafe {
-                //         self.model.train(&xs, &ys, TRN_EPOCH);
-                //     }
-                //     train_samples.truncate();
-                //
-                //     if self.is_model_stale() {
-                //         self.rebuild_model();
-                //     }
-                // }
+                FilterMode::Ready(ref mut buffer) => buffer.truncate(),
             }
         }
+
+        // match &mut self.mode {
+        //     FilterMode::Preheat(ref mut buffer) => {
+        //         buffer.push(input.bytes(), &map);
+        //         if buffer.is_full() {
+        //             let data = unsafe { buffer.iter2(self.stats.batch_size) };
+        //             utils::train(&mut self.model, data, TRN_EPOCH);
+        //             buffer.truncate();
+        //         }
+        //     }
+        //     // nn module is already trained
+        //     FilterMode::Ready(ref mut buffer) => {
+        //         buffer.push(input.bytes(), &map);
+        //         if buffer.is_full() {
+        //             let data = unsafe { buffer.iter2(self.stats.batch_size) };
+        //             utils::train(&mut self.model, data, TRN_EPOCH);
+        //             buffer.truncate();
+        //         }
+        //     }
+        // }
     }
 }

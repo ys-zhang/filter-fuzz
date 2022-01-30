@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use clap::{App, Arg};
 
 use filter_fuzz::{
-    filter::cov::{Compressor, CosSim, CovFilter},
+    filter::cov::{CosSim, CovFilter},
     FilterFuzzer,
 };
 
