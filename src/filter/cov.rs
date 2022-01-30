@@ -1,4 +1,11 @@
-use super::{utils, Debug, Filter};
+use super::{
+    utils::{
+        data::{input_batch_to_tensor, SampleBuffer},
+        model::Model,
+        ops,
+    },
+    Debug, Filter,
+};
 use libafl::{
     bolts::rands::{Rand, StdRand},
     inputs::HasBytesVec,
@@ -6,11 +13,7 @@ use libafl::{
     ExecuteInputResult,
 };
 use std::{marker::PhantomData, vec};
-use tch::{nn::OptimizerConfig, Device, Kind, Tensor};
-use utils::{
-    data::{input_batch_to_tensor, SampleBuffer},
-    model, ops,
-};
+use tch::{nn, Device, Kind, Tensor};
 
 // TODO: Hard code parameters
 const RND_SEED: u64 = 8944; // random seed for filter
@@ -198,10 +201,9 @@ pub enum FilterMode {
 }
 
 #[allow(unused)]
-pub struct CovFilter<I, M, O>
+pub struct CovFilter<I, O>
 where
     O: MapObserver<u8>,
-    M: tch::nn::Module,
 {
     /// name used get the MapObserver from ObserversTuple
     name: String,
@@ -212,33 +214,24 @@ where
     /// judge whether a prediction is "interesting"
     judge: Box<dyn Judge>,
     /// the nn module
-    model: M,
-    /// curent trained model params
-    model_param: tch::nn::VarStore,
-    /// curent optimizer for model training
-    model_opt: tch::nn::Optimizer,
+    model: Model,
     phantom: PhantomData<(I, O)>,
 }
 
-impl<I, M, O> CovFilter<I, M, O>
+impl<I, O> CovFilter<I, O>
 where
     I: HasBytesVec,
-    M: tch::nn::Module,
     O: MapObserver<u8>,
 {
-    pub fn new(name: &str, model: M, in_dim: usize, out_dim: usize, batch_size: usize) -> Self {
-        let stats = CovFilterStats::new(batch_size, in_dim, out_dim);
-        let preprocessor = EdgeTracker::new(out_dim);
-        let judge = CosSim::new(out_dim, WND_FACTOR * batch_size);
+    pub fn new(name: &str, model: Model, batch_size: usize) -> Self {
+        let stats = CovFilterStats::new(batch_size, model.in_dim(), model.out_dim());
+        let preprocessor = EdgeTracker::new(model.out_dim());
+        let judge = CosSim::new(model.out_dim(), WND_FACTOR * batch_size);
         let init_mode = FilterMode::Preheat(SampleBuffer::new(
             PRH_BATCH_NUM * batch_size,
-            in_dim,
-            out_dim,
+            model.in_dim(),
+            model.out_dim(),
         ));
-        let model_param = tch::nn::VarStore::new(Device::Cpu);
-        let model_opt = tch::nn::Adam::default()
-            .build(&model_param, 0.0001)
-            .expect("fail to build optimizer");
 
         Self {
             name: name.to_string(),
@@ -247,14 +240,13 @@ where
             preprocessor: Box::new(preprocessor),
             judge: Box::new(judge),
             model,
-            model_param,
-            model_opt,
             phantom: PhantomData,
         }
     }
 
     pub fn is_model_stale(&self) -> bool {
-        todo!()
+        // TODO: now it always returns false
+        false
     }
 
     fn rebuild_model(&mut self) {
@@ -262,10 +254,9 @@ where
     }
 }
 
-impl<I, M, O, S> Filter<I, S> for CovFilter<I, M, O>
+impl<I, O, S> Filter<I, S> for CovFilter<I, O>
 where
     I: HasBytesVec,
-    M: tch::nn::Module,
     O: MapObserver<u8>,
 {
     #[inline]
@@ -340,12 +331,7 @@ where
         buffer.push(input.bytes(), &map);
         if buffer.is_full() {
             let data = unsafe { buffer.iter2(self.stats.batch_size) };
-            model::train(
-                &mut self.model,
-                &mut self.model_opt,
-                data,
-                TRN_EPOCH,
-            );
+            self.model.train(data, TRN_EPOCH);
 
             match &mut self.mode {
                 FilterMode::Preheat(_) => {

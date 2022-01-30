@@ -1,47 +1,83 @@
 pub mod model {
     // official tch examples see https://github.com/LaurentMazare/tch-rs
-    use tch::{data::Iter2, nn, Reduction, Tensor};
+    use tch::{nn::OptimizerConfig, data::Iter2, nn, Reduction, Tensor};
 
-    pub fn train(
-        model: &mut impl nn::Module,
-        opt: &mut nn::Optimizer,
-        data: Iter2,
-        epoch: usize,
-    ) {
-        let mut data = data;
-        for _e in 0..epoch {
-            for (xs, ys) in data.shuffle() {
-                let ys_hat = model.forward(&xs);
-                let loss = ys_hat.binary_cross_entropy::<Tensor>(&ys, None, Reduction::Mean);
-                opt.backward_step(&loss);
+    // the prediction model struct
+    #[derive(Debug)]
+    pub struct Model {
+        module: Box<dyn nn::Module>,
+        opt: nn::Optimizer,
+        in_dim: usize,
+        out_dim: usize,
+    }
+
+    impl Model {
+        pub fn new_dense(vs: &nn::VarStore, in_dim: usize, out_dim: usize) -> Self {
+            let ps = &vs.root() / "dense";
+            let opt = nn::Adam::default()
+                .build(vs, 0.0001)
+                .expect("fail to build optimizer");
+            let layer_1_out_dim = (in_dim as i64 / 64).max(128);
+            let module = nn::seq()
+                .add(nn::linear(
+                    &ps / "dense-1",
+                    in_dim as i64,
+                    layer_1_out_dim,
+                    Default::default(),
+                ))
+                .add(nn::func(|xs| xs.relu()))
+                .add(nn::linear(
+                    &ps / "dense-2",
+                    layer_1_out_dim,
+                    128,
+                    Default::default(),
+                ))
+                .add(nn::func(|xs| xs.relu()))
+                .add(nn::linear(
+                    &ps / "output",
+                    128,
+                    out_dim as i64,
+                    Default::default(),
+                ))
+                .add(nn::func(|xs| xs.sigmoid()));
+
+            Self {
+                module: Box::new(module),
+                opt,
+                in_dim,
+                out_dim
             }
         }
     }
 
-    pub fn small_dense(vs: &nn::Path, in_dim: usize, out_dim: usize) -> impl nn::Module {
-        let layer_1_out_dim = (in_dim as i64 / 64).max(128);
-        nn::seq()
-            .add(nn::linear(
-                vs / "dense-1",
-                in_dim as i64,
-                layer_1_out_dim,
-                Default::default(),
-            ))
-            .add(nn::func(|xs| xs.relu()))
-            .add(nn::linear(
-                vs / "dense-2",
-                layer_1_out_dim,
-                128,
-                Default::default(),
-            ))
-            .add(nn::func(|xs| xs.relu()))
-            .add(nn::linear(
-                vs / "output",
-                128,
-                out_dim as i64,
-                Default::default(),
-            ))
-            .add(nn::func(|xs| xs.sigmoid()))
+    impl Model {
+
+        pub fn in_dim(&self) -> usize {
+            self.in_dim
+        }
+
+        pub fn out_dim(&self) -> usize {
+            self.out_dim
+        }
+
+        pub fn train(
+            &mut self,
+            data: Iter2,
+            epoch: usize,
+        ) {
+            let mut data = data;
+            for _e in 0..epoch {
+                for (xs, ys) in data.shuffle() {
+                    let ys_hat = self.module.forward(&xs);
+                    let loss = ys_hat.binary_cross_entropy::<Tensor>(&ys, None, Reduction::Mean);
+                    self.opt.backward_step(&loss);
+                }
+            }
+        }
+
+        pub fn forward(&self, xs: &Tensor) -> Tensor {
+            self.module.forward(xs)
+        }
     }
 }
 
@@ -84,6 +120,7 @@ pub mod data {
     ///     3. short inputs will be pad with 0
     ///     4. output is a byte tensor
     ///     5. output tensor on CPU
+    #[allow(unused)]
     unsafe fn input_to_tensor(input: &impl HasBytesVec, dim: usize) -> Tensor {
         let bytes = input.bytes();
         let ts = Tensor::of_blob(
@@ -284,6 +321,7 @@ pub mod ops {
     /// Note that:
     ///     1. input tensor must be 1-D or 2-D
     ///     2. input and output tensors live on CPU
+    #[allow(unused)]
     pub unsafe fn pad(ts: Tensor, right: i64, kind: Kind) -> Tensor {
         let ts_options = (kind, Device::Cpu);
         match ts.dim() {
