@@ -27,9 +27,10 @@ use std::path::PathBuf;
 use clap::{App, Arg};
 
 use filter_fuzz::{
-    filter::cov::{CosSim, CovFilter},
+    filter::{cov::CovFilter, utils::model::Model},
     FilterFuzzer,
 };
+use tch;
 
 #[allow(clippy::similar_names)]
 pub fn main() {
@@ -177,13 +178,12 @@ pub fn main() {
     //     .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
     //     .expect("Error in the fuzzing loop");
 
-    let mut filter = CovFilter::<
-        _,
-        CosSim,
-        HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>,
-        Compressor<_>,
-        _,
-    >::new("shared_mem", MAP_SIZE, 128);
+    // a variable store for model parameters
+    let vs = tch::nn::VarStore::new(tch::Device::Cpu);
+    let model = Model::new_dense(&vs, 512, 3000);
+
+    let mut filter: CovFilter<_, HitcountsMapObserver<ConstMapObserver<u8, MAP_SIZE>>> =
+        CovFilter::new("shared_mem", model, 128);
 
     fuzzer
         .filter_fuzz_loop(

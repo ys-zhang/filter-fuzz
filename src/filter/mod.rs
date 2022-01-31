@@ -3,7 +3,7 @@ use libafl::ExecuteInputResult;
 use std::fmt::Debug;
 
 pub mod cov;
-mod utils;
+pub mod utils;
 
 pub trait Filter<I, S> {
     /// number of preferred inputs for each run of the filter
