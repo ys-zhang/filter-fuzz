@@ -13,7 +13,7 @@ use libafl::{
     ExecuteInputResult,
 };
 use std::{marker::PhantomData, vec};
-use tch::{nn, Device, Kind, Tensor};
+use tch::{Device, Kind, Tensor};
 
 // TODO: Hard code parameters
 const RND_SEED: u64 = 8944; // random seed for filter
@@ -162,7 +162,7 @@ impl CosSim {
     }
 
     pub fn similarity(&self, ys: &Tensor) -> Tensor {
-        unsafe { ops::standardize(ys).dot(&self.baseline) }
+        unsafe { ops::standardize(ys).matmul(&self.baseline) }
     }
 
     /// randomly choose n similarity samples from history
@@ -265,6 +265,7 @@ where
     }
 
     fn filter(&mut self, batch: &[I], _state: &mut S, _corpus_idx: usize) -> Vec<bool> {
+        // println!("filter start");
         let mut pass_counter: usize = 0;
 
         let rst = match self.mode {
@@ -295,6 +296,7 @@ where
         self.stats.num_in += batch.len();
         self.stats.num_out += pass_counter;
 
+        // println!("filter end: {} in, {} passed", batch.len(), pass_counter);
         rst
     }
 
@@ -330,7 +332,8 @@ where
 
         buffer.push(input.bytes(), &map);
         if buffer.is_full() {
-            let data = unsafe { buffer.iter2(self.stats.batch_size) };
+            // println!("observe: buffer full");
+            let data = buffer.iter2(self.stats.batch_size);
             self.model.train(data, TRN_EPOCH);
 
             match &mut self.mode {

@@ -13,7 +13,7 @@ EXAMPLE_TARGET = $(EXAMPLE_DIR)/src/program.c
 
 
 forkserver-simple: afl
-	cargo run --example forkserver_simple -- $(OUT_DIR)/program $(EXAMPLE_DIR)/corpus
+	RUST_BACKTRACE=1 cargo run --example forkserver_simple -- $(OUT_DIR)/program $(EXAMPLE_DIR)/corpus
 
 afl: aflplusplus $(EXAMPLE_TARGET)
 	@# compile target program

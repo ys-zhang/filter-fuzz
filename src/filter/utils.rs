@@ -1,6 +1,6 @@
 pub mod model {
     // official tch examples see https://github.com/LaurentMazare/tch-rs
-    use tch::{nn::OptimizerConfig, data::Iter2, nn, Reduction, Tensor};
+    use tch::{data::Iter2, nn, nn::OptimizerConfig, Reduction, Tensor};
 
     // the prediction model struct
     #[derive(Debug)]
@@ -45,13 +45,12 @@ pub mod model {
                 module: Box::new(module),
                 opt,
                 in_dim,
-                out_dim
+                out_dim,
             }
         }
     }
 
     impl Model {
-
         pub fn in_dim(&self) -> usize {
             self.in_dim
         }
@@ -60,11 +59,8 @@ pub mod model {
             self.out_dim
         }
 
-        pub fn train(
-            &mut self,
-            data: Iter2,
-            epoch: usize,
-        ) {
+        pub fn train(&mut self, data: Iter2, epoch: usize) {
+            // println!("Model::train start");
             let mut data = data;
             for _e in 0..epoch {
                 for (xs, ys) in data.shuffle() {
@@ -73,6 +69,7 @@ pub mod model {
                     self.opt.backward_step(&loss);
                 }
             }
+            // println!("Model::train end");
         }
 
         pub fn forward(&self, xs: &Tensor) -> Tensor {
@@ -91,16 +88,18 @@ pub mod data {
     ///     1. input data will be copied
     ///     2. oversize inputs will be truncated
     ///     3. short inputs will be pad with 0
-    ///     4. output is a byte tensor
+    ///     4. output is a float tensor
     ///     5. output tensor lives on CPU
     pub unsafe fn input_batch_to_tensor(batch: &[impl HasBytesVec], dim: usize) -> Tensor {
         let ts = tch::Tensor::zeros(
             &[batch.len() as i64, dim as i64],
-            (Kind::Uint8, Device::Cpu),
+            (Kind::Float, Device::Cpu),
         );
         (0..batch.len() as i64).zip(batch).for_each(|(row, i)| {
             let bytes = i.bytes();
             let len = dim.min(bytes.len()) as i64;
+            // the `of_blob` creates a tensor without copy 
+            // and do not assume ownership of the underlying buffer
             let ts_row = Tensor::of_blob(
                 bytes.as_ptr(),
                 &[len], // truncates the input to in_dim
@@ -123,6 +122,10 @@ pub mod data {
     #[allow(unused)]
     unsafe fn input_to_tensor(input: &impl HasBytesVec, dim: usize) -> Tensor {
         let bytes = input.bytes();
+        // the `of_blob` function creates a tensor without copy
+        // but the created tensor do not own the underlying memory buffer.
+        // which is different from the `of_data` function that takes the ownership
+        // see https://pytorch.org/cppdocs/api/function_namespacetorch_1ac009244049812a3efdf4605d19c5e79b.html
         let ts = Tensor::of_blob(
             bytes.as_ptr(),
             &[dim.min(bytes.len()) as i64], // truncates the input to in_dim
@@ -214,21 +217,16 @@ pub mod data {
         }
 
         /// create a torch Iter2 from the Buffer
-        /// note that
-        ///     1. only `ys` are copied since need to convert to f32
-        ///     2. `xs` shares the same memory with the buffer
-        pub unsafe fn iter2(&self, batch_size: usize) -> Iter2 {
-            let xs = self.xs();
-            let ys = Tensor::of_data_size(
-                &self.y_buf,
-                &[self.len as i64, self.y_dim as i64],
-                Kind::Float,
-            );
+        pub fn iter2(&self, batch_size: usize) -> Iter2 {
+            let xs = self.xs() + 0.0;
+            let ys = self.ys() + 0.0;
+            assert_eq!(ys.kind(), Kind::Float);
+            assert_eq!(xs.kind(), Kind::Float);
             Iter2::new(&xs, &ys, batch_size as i64) // tensors are shallow cloned
         }
 
         pub fn to_iter2(self, batch_size: usize) -> Iter2 {
-            unsafe { self.iter2(batch_size) }
+            self.iter2(batch_size)
         }
 
         pub fn truncate(&mut self) {
